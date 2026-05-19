@@ -30,6 +30,12 @@
   }
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --text: #9ca3af;
@@ -59,11 +65,11 @@
   min-height: 100svh;
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  overflow-x: hidden;
 }
 
 h1,
@@ -108,4 +114,27 @@ code {
   line-height: 135%;
   padding: 4px 8px;
   background: var(--code-bg);
+}
+
+@media (max-width: 640px) {
+  #root {
+    border-inline: 0;
+  }
+
+  h1 {
+    font-size: 32px;
+    line-height: 112%;
+    letter-spacing: 0;
+    margin: 12px 0;
+  }
+
+  p {
+    max-width: 28rem;
+  }
+
+  code {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
