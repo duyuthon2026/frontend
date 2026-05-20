@@ -1,4 +1,5 @@
 import { registerSW } from 'virtual:pwa-register'
+import { brand } from '../config/brand'
 
 type ServiceWorkerRegistrationResult =
   | {
@@ -65,7 +66,7 @@ export async function setupPushNotifications(
 
   if (!window.isSecureContext) {
     return {
-      message: 'Push notifications require HTTPS or localhost.',
+      message: '푸시 알림은 HTTPS 또는 localhost에서 동작합니다.',
       status: 'unsupported',
     }
   }
@@ -74,7 +75,7 @@ export async function setupPushNotifications(
 
   if (permission !== 'granted') {
     return {
-      message: 'Notification permission was not granted.',
+      message: '알림 권한이 허용되지 않았습니다.',
       status: 'blocked',
     }
   }
@@ -84,7 +85,7 @@ export async function setupPushNotifications(
 
   if (existingSubscription) {
     return {
-      message: 'Push subscription is already ready.',
+      message: '푸시 구독이 이미 준비되었습니다.',
       status: 'subscribed',
       subscription: existingSubscription.toJSON(),
     }
@@ -92,7 +93,7 @@ export async function setupPushNotifications(
 
   if (!vapidPublicKey.trim()) {
     return {
-      message: 'Notification permission is ready. Add VITE_VAPID_PUBLIC_KEY to create a push subscription.',
+      message: '알림 권한 준비 완료. VITE_VAPID_PUBLIC_KEY 설정 뒤 푸시 구독 생성.',
       status: 'missing-vapid-key',
     }
   }
@@ -103,7 +104,7 @@ export async function setupPushNotifications(
   })
 
   return {
-    message: 'Push subscription is ready.',
+    message: '푸시 구독 준비 완료.',
     status: 'subscribed',
     subscription: subscription.toJSON(),
   }
@@ -120,12 +121,12 @@ export async function showLocalTestNotification(): Promise<void> {
 
   const registration = await getServiceWorkerRegistration()
 
-  await registration.showNotification('Bunruntime is ready', {
-    badge: '/pwa-192.png',
-    body: 'Service worker notification path is working.',
+  await registration.showNotification(`${brand.appName} 준비 완료`, {
+    badge: brand.appIconPng,
+    body: '서비스 워커 알림 경로가 동작합니다.',
     data: { url: '/' },
-    icon: '/pwa-192.png',
-    tag: 'bunruntime-local-test',
+    icon: brand.appIconPng,
+    tag: 'janban-zero-local-test',
   })
 }
 

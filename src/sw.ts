@@ -25,15 +25,15 @@ clientsClaim()
 
 sw.addEventListener('push', (event) => {
   const payload = parsePushPayload(event.data)
-  const title = payload.title || 'Bunruntime'
+  const title = payload.title || '잔반제로'
 
   event.waitUntil(
     sw.registration.showNotification(title, {
-      badge: '/pwa-192.png',
-      body: payload.body || 'You have a new notification.',
+      badge: '/icon.png',
+      body: payload.body || '새 알림이 도착했습니다.',
       data: { url: payload.url || '/' },
-      icon: payload.icon || '/pwa-192.png',
-      tag: payload.tag || 'bunruntime-push',
+      icon: payload.icon || '/icon.png',
+      tag: payload.tag || 'janban-zero-push',
     }),
   )
 })
@@ -59,7 +59,7 @@ function parsePushPayload(data: PushMessageData | null): PushPayload {
   } catch {
     return {
       body: data.text(),
-      title: 'Bunruntime',
+      title: '잔반제로',
     }
   }
 }

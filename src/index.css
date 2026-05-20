@@ -2,8 +2,8 @@
 
 :root {
   font: 16px/1.45 system-ui, 'Segoe UI', Roboto, sans-serif;
-  color: #101828;
-  background: #f8fafc;
+  color: #272719;
+  background: #fafaf1;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -23,4 +23,13 @@
 body {
   margin: 0;
   overflow-x: hidden;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  cursor: pointer;
 }
