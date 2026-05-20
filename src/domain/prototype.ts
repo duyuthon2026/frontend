@@ -34,28 +34,60 @@ export type HomeState = {
 }
 
 export type InventoryItem = {
-  daysLeft: number
   id: string
-  location: string
   name: string
   quantity: string
-  status: 'safe' | 'soon' | 'overdue'
+  location: string
+  expiresAt: string // YYYY-MM-DD
+}
+
+export type RecipeIngredient = {
+  name: string
+  quantity: string
+  avatar: string
 }
 
 export type RecipeCard = {
   id: string
-  ingredients: string
+  ingredients: RecipeIngredient[]
   name: string
   saved: boolean
   time: string
 }
 
+export const parseLocalDate = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+export const calculateDaysLeft = (expiresAt: string): number => {
+  const today = new Date()
+  const todayLocal = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const targetLocal = parseLocalDate(expiresAt)
+  const diffTime = targetLocal.getTime() - todayLocal.getTime()
+  return Math.round(diffTime / (1000 * 60 * 60 * 24))
+}
+
+export const calculateStatus = (daysLeft: number): 'safe' | 'soon' | 'overdue' => {
+  if (daysLeft < 0) return 'overdue'
+  if (daysLeft <= 2) return 'soon'
+  return 'safe'
+}
+
+const getRelativeDateString = (daysOffset: number): string => {
+  const d = new Date()
+  const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate() + daysOffset)
+  const yyyy = localDate.getFullYear()
+  const mm = String(localDate.getMonth() + 1).padStart(2, '0')
+  const dd = String(localDate.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
 export const appTabs: AppTab[] = [
-  { id: 'home', label: '홈', description: '오늘 요약과 상태' },
-  { id: 'inventory', label: '인벤토리', description: '보관 식재료' },
-  { id: 'lens', label: '렌즈', description: '촬영 분석' },
+  { id: 'home', label: '오늘', description: '오늘 요약과 상태' },
+  { id: 'inventory', label: '보관함', description: '보관 식재료' },
+  { id: 'lens', label: '촬영', description: '촬영 분석' },
   { id: 'recipes', label: '레시피', description: '추천과 저장' },
-  { id: 'my', label: '마이', description: '설정' },
 ]
 
 export const onboardingScreens: PrototypeScreen[] = [
@@ -244,31 +276,41 @@ export const recipeViews: PrototypeScreen[] = [
 ]
 
 export const inventoryItems: InventoryItem[] = [
-  { id: 'i1', name: '두부', quantity: '1모', location: '냉장', daysLeft: 2, status: 'soon' },
-  { id: 'i2', name: '애호박', quantity: '1/2개', location: '냉장', daysLeft: 1, status: 'soon' },
-  { id: 'i3', name: '버섯', quantity: '180g', location: '냉동', daysLeft: 5, status: 'safe' },
-  { id: 'i4', name: '상추', quantity: '8장', location: '냉장', daysLeft: -1, status: 'overdue' },
+  { id: 'i1', name: '두부', quantity: '1모', location: '냉장', expiresAt: getRelativeDateString(2) },
+  { id: 'i2', name: '애호박', quantity: '1/2개', location: '냉장', expiresAt: getRelativeDateString(1) },
+  { id: 'i3', name: '버섯', quantity: '180g', location: '냉동', expiresAt: getRelativeDateString(5) },
+  { id: 'i4', name: '상추', quantity: '8장', location: '냉장', expiresAt: getRelativeDateString(-1) },
 ]
 
 export const recipeCards: RecipeCard[] = [
   {
     id: 'r1',
     name: '애호박 두부 덮밥',
-    ingredients: '두부, 애호박, 버섯',
+    ingredients: [
+      { name: '두부', quantity: '1모', avatar: '⬜' },
+      { name: '애호박', quantity: '1/2개', avatar: '🥒' },
+      { name: '버섯', quantity: '180g', avatar: '🍄' },
+    ],
     saved: true,
     time: '15분',
   },
   {
     id: 'r2',
     name: '버섯 된장국',
-    ingredients: '버섯, 두부',
+    ingredients: [
+      { name: '버섯', quantity: '100g', avatar: '🍄' },
+      { name: '두부', quantity: '1/2모', avatar: '⬜' },
+    ],
     saved: false,
     time: '12분',
   },
   {
     id: 'r3',
     name: '상추 겉절이',
-    ingredients: '상추, 고춧가루',
+    ingredients: [
+      { name: '상추', quantity: '8장', avatar: '🥬' },
+      { name: '고춧가루', quantity: '1큰술', avatar: '🌶️' },
+    ],
     saved: false,
     time: '7분',
   },
@@ -280,6 +322,8 @@ export const calendarPreview = [
   { day: '수', count: 4, tone: 'soon' },
   { day: '목', count: 1, tone: 'danger' },
   { day: '금', count: 3, tone: 'safe' },
+  { day: '토', count: 1, tone: 'safe' },
+  { day: '일', count: 0, tone: 'safe' },
 ]
 
 export const mySettingGroups = [

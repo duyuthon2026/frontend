@@ -8,22 +8,24 @@ type StatusPillProps = {
 export function StatusPill({ label, status }: StatusPillProps) {
   const tone =
     status === 'ready' || status === 'active'
-      ? 'border-[#BDBB40] bg-[#F4F8DF]'
+      ? 'border-[var(--color-primary)] bg-[var(--color-surface-brand-soft)] text-[var(--color-content-brand)]'
       : status === 'checking'
-        ? 'border-[#D8D67A] bg-[#FBF9DF]'
+        ? 'border-[var(--color-border-brand)] bg-[var(--color-surface-warning-soft)] text-[var(--color-warning)]'
         : status === 'blocked' || status === 'error' || status === 'unsupported'
-          ? 'border-[#F2B8A0] bg-[#FFF0E8]'
-          : 'border-[#E2E0BD] bg-[#FAFAF1]'
+          ? 'border-[var(--color-error)] bg-[var(--color-surface-danger-soft)] text-[var(--color-error)]'
+          : 'border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[var(--color-content-muted)]'
 
   return (
     <div
       className={cn(
-        'flex min-h-[42px] items-center justify-between rounded-lg border px-3 py-2.5 text-[0.82rem] text-[#68684C]',
+        'flex min-h-[42px] items-center justify-between rounded-xl border px-3.5 py-2 text-[0.82rem] font-semibold',
         tone,
       )}
     >
       <span>{label}</span>
-      <strong className="text-[0.72rem] uppercase text-[#272719]">{status}</strong>
+      <strong className="text-[0.68rem] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-current opacity-80">
+        {status}
+      </strong>
     </div>
   )
 }

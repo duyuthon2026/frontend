@@ -1,5 +1,18 @@
+import { useEffect, useState } from 'react'
 import { registerSW } from 'virtual:pwa-register'
 import { brand } from '../config/brand'
+
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>
+  userChoice: Promise<{
+    outcome: 'accepted' | 'dismissed'
+    platform: string
+  }>
+}
+
+type StandaloneNavigator = Navigator & {
+  standalone?: boolean
+}
 
 type ServiceWorkerRegistrationResult =
   | {
@@ -24,6 +37,10 @@ export type PushSetupResult =
 
 let didRegisterServiceWorker = false
 let serviceWorkerReady: Promise<ServiceWorkerRegistration> | null = null
+let cachedInstallPromptEvent: BeforeInstallPromptEvent | null = null
+let cachedIsInstallable = false
+
+const installPromptSubscribers = new Set<() => void>()
 
 export function registerAppServiceWorker(): ServiceWorkerRegistrationResult {
   if (!('serviceWorker' in navigator)) {
@@ -151,4 +168,91 @@ function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {
   }
 
   return output
+}
+
+export function usePWAInstall() {
+  const [installPromptEvent, setInstallPromptEvent] =
+    useState<BeforeInstallPromptEvent | null>(cachedInstallPromptEvent)
+  const [isInstallable, setIsInstallable] = useState(cachedIsInstallable)
+  const [isStandalone, setIsStandalone] = useState(getIsStandaloneMode)
+  const [isIOS] = useState(getIsIOSDevice)
+
+  useEffect(() => {
+    const syncCachedPrompt = () => {
+      setInstallPromptEvent(cachedInstallPromptEvent)
+      setIsInstallable(cachedIsInstallable)
+    }
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      if (!isBeforeInstallPromptEvent(event)) return
+
+      event.preventDefault()
+      cacheInstallPrompt(event, true)
+    }
+
+    const handleAppInstalled = () => {
+      cacheInstallPrompt(null, false)
+      setIsStandalone(true)
+    }
+
+    installPromptSubscribers.add(syncCachedPrompt)
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+    window.addEventListener('appinstalled', handleAppInstalled)
+
+    return () => {
+      installPromptSubscribers.delete(syncCachedPrompt)
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+      window.removeEventListener('appinstalled', handleAppInstalled)
+    }
+  }, [])
+
+  const installApp = async () => {
+    if (!installPromptEvent) return false
+    await installPromptEvent.prompt()
+    const { outcome } = await installPromptEvent.userChoice
+    cacheInstallPrompt(null, false)
+    return outcome === 'accepted'
+  }
+
+  return {
+    isInstallable,
+    isStandalone,
+    isIOS,
+    installApp,
+  }
+}
+
+function cacheInstallPrompt(
+  promptEvent: BeforeInstallPromptEvent | null,
+  isInstallable: boolean,
+) {
+  cachedInstallPromptEvent = promptEvent
+  cachedIsInstallable = isInstallable
+  installPromptSubscribers.forEach((subscriber) => subscriber())
+}
+
+function getIsStandaloneMode() {
+  if (typeof window === 'undefined') return false
+
+  const standaloneNavigator: StandaloneNavigator = window.navigator
+
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    standaloneNavigator.standalone === true
+  )
+}
+
+function getIsIOSDevice() {
+  if (typeof window === 'undefined') return false
+
+  return /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase())
+}
+
+function isBeforeInstallPromptEvent(event: Event): event is BeforeInstallPromptEvent {
+  return (
+    'prompt' in event &&
+    typeof event.prompt === 'function' &&
+    'userChoice' in event &&
+    event.userChoice instanceof Promise
+  )
 }

@@ -22,12 +22,12 @@ export function Panel({
     <section
       id={id}
       className={cn(
-        'grid gap-4 rounded-lg border border-[#E2E0BD] bg-white p-4 shadow-[0_14px_34px_rgba(80,78,18,0.08)]',
+        'grid gap-4 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-5 shadow-[var(--shadow-glass)] backdrop-blur-md transition-all duration-300',
         className,
       )}
     >
       <SectionHeading eyebrow={eyebrow} title={title} description={description} />
-      {children}
+      <div className="grid gap-3">{children}</div>
     </section>
   )
 }

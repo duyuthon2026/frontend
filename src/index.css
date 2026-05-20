@@ -1,35 +1,198 @@
 @import "tailwindcss";
 
 :root {
-  font: 16px/1.45 system-ui, 'Segoe UI', Roboto, sans-serif;
-  color: #272719;
-  background: #fafaf1;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Fonts */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Outfit', 'Inter', system-ui, sans-serif;
+
+  /* Theme Transitions */
+  --transition-theme: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                      border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                      color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                      box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Light Theme Colors (DESIGN.md) */
+  --color-primary: #BDBB40;
+  --color-secondary: #9F9F30;
+  --color-tertiary: #CDD474;
+  --color-on-primary: #272719;
+  --color-on-secondary: #FFFFFF;
+  --color-on-tertiary: #272719;
+
+  --color-bg-base: #FAFAFA;
+  --color-bg-app: #FAFAF1;
+  --color-bg-raised: #F4F4F5;
+  --color-bg-overlay: rgba(255, 255, 255, 0.85);
+  --color-bg-sunken: #F4F4F5;
+
+  --color-surface-hover: #E4E4E7;
+  --color-surface-active: #D4D4D8;
+  --color-surface-disabled: #F4F4F5;
+  --color-surface-brand-soft: #F4F8DF;
+  --color-surface-warning-soft: #FEF9C2;
+  --color-surface-danger-soft: #FFE2E2;
+
+  --color-border-default: #E4E4E7;
+  --color-border-strong: #9F9FA9;
+  --color-border-brand: #D8D67A;
+  --color-focus: #BDBB40;
+
+  --color-content-default: #09090B;
+  --color-content-brand: #272719;
+  --color-content-muted: #71717B;
+  --color-content-subtle: #9F9FA9;
+  --color-content-inverse: #FFFFFF;
+
+  --color-success: #00C950;
+  --color-success-subtle: #DCFCE7;
+  --color-error: #FB2C36;
+  --color-error-subtle: #FFE2E2;
+  --color-warning: #F0B100;
+  --color-warning-subtle: #FEF9C2;
+
+  --color-camera-bg: #09090B;
+  --color-camera-border: #27272A;
+  --color-camera-content: #FAFAFA;
+  --color-camera-muted: #D4D4D8;
+  --color-camera-subtle: #A1A1AA;
+  --color-camera-control-bg: #FFFFFF;
+  --color-camera-control-content: #09090B;
+  
+  /* Custom Shadows */
+  --shadow-glass: 0 8px 32px 0 rgba(80, 78, 18, 0.06);
+  --shadow-premium: 0 16px 40px -10px rgba(80, 78, 18, 0.12);
+  --glass-blur: 16px;
 }
 
-*,
-*::before,
-*::after {
+:root.dark {
+  /* Dark Theme Colors (DESIGN.md) */
+  --color-bg-base: #09090B;
+  --color-bg-app: #0C0C0A;
+  --color-bg-raised: #18181B;
+  --color-bg-overlay: rgba(24, 24, 27, 0.85);
+  --color-bg-sunken: #000000;
+
+  --color-surface-hover: #27272A;
+  --color-surface-active: #3F3F47;
+  --color-surface-disabled: #18181B;
+  --color-surface-brand-soft: #232810;
+  --color-surface-warning-soft: #432004;
+  --color-surface-danger-soft: #460809;
+
+  --color-border-default: #3F3F47;
+  --color-border-strong: #52525C;
+  --color-border-brand: #62612a;
+
+  --color-content-default: #FAFAFA;
+  --color-content-brand: #E4E4C5;
+  --color-content-muted: #9F9FA9;
+  --color-content-subtle: #52525C;
+  --color-content-inverse: #09090B;
+
+  --color-success-subtle: #0f3018;
+  --color-error-subtle: #300c0f;
+  --color-warning-subtle: #301f0c;
+
+  --color-camera-bg: #09090B;
+  --color-camera-border: #27272A;
+  --color-camera-content: #FAFAFA;
+  --color-camera-muted: #D4D4D8;
+  --color-camera-subtle: #A1A1AA;
+  --color-camera-control-bg: #FFFFFF;
+  --color-camera-control-content: #09090B;
+
+  /* Dark Mode Shadows */
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+  --shadow-premium: 0 16px 40px -10px rgba(0, 0, 0, 0.6);
+}
+
+* {
   box-sizing: border-box;
+  font-family: var(--font-sans);
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-bg-app);
+  color: var(--color-content-default);
+  overflow-x: hidden;
+  min-height: 100svh;
 }
 
 #root {
   min-height: 100svh;
 }
 
-body {
-  margin: 0;
-  overflow-x: hidden;
-}
-
-button,
-a {
+button, a {
   -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
 }
 
-button {
-  cursor: pointer;
+/* Glassmorphism Styles */
+.glass-panel {
+  background: var(--color-bg-overlay);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--color-border-default);
+  box-shadow: var(--shadow-glass);
+}
+
+.glass-panel-hover:hover {
+  border-color: var(--color-border-brand);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-premium);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-default);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-strong);
+}
+
+/* Scanning Neon Laser Animation */
+@keyframes laser-scan {
+  0% {
+    top: 5%;
+    opacity: 0.8;
+  }
+  50% {
+    top: 92%;
+    opacity: 1;
+    filter: drop-shadow(0 0 10px #BDBB40);
+  }
+  100% {
+    top: 5%;
+    opacity: 0.8;
+  }
+}
+
+.scanner-laser {
+  animation: laser-scan 3.5s infinite ease-in-out;
+}
+
+/* Pulsing scanner overlay border */
+@keyframes pulse-border {
+  0%, 100% {
+    border-color: rgba(189, 187, 64, 0.4);
+  }
+  50% {
+    border-color: rgba(189, 187, 64, 1);
+    box-shadow: 0 0 15px rgba(189, 187, 64, 0.2);
+  }
+}
+
+.scanner-target {
+  animation: pulse-border 2s infinite ease-in-out;
 }

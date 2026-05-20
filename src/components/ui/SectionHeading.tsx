@@ -12,15 +12,15 @@ export function SectionHeading({
   title,
 }: SectionHeadingProps) {
   return (
-    <div className="grid gap-[7px]">
-      <p className="m-0 text-[0.76rem] font-extrabold uppercase tracking-normal text-[#7B7A22]">
+    <div className="grid gap-1">
+      <p className="m-0 text-[0.72rem] font-extrabold uppercase tracking-widest text-[var(--color-secondary)] dark:text-[var(--color-tertiary)]">
         {eyebrow}
       </p>
-      <h2 className="m-0 text-[1.2rem] font-extrabold leading-tight tracking-normal text-[#272719]">
+      <h2 className="m-0 text-[1.15rem] font-extrabold leading-tight tracking-tight text-[var(--color-content-default)]">
         {title}
       </h2>
       {description && (
-        <div className="grid gap-1 text-[0.92rem] leading-[1.45] text-[#68684C] [&_p]:m-0">
+        <div className="mt-0.5 grid gap-1 text-[0.88rem] leading-[1.45] text-[var(--color-content-muted)] [&_p]:m-0">
           {description}
         </div>
       )}
