@@ -1,7 +1,7 @@
 ---
 version: alpha
 name: janban-zero-design-system
-description: 잔반제로는 식사 촬영, 잔반 리뷰, 보관 식재료, 레시피 추천을 연결하는 모바일 우선 PWA다. 브랜드는 식기와 채소 심볼을 중심으로 한 올리브-라임 계열을 사용하되, 운영형 앱답게 화면 구조는 조용하고 스캔 가능해야 한다. Primary, secondary, tertiary는 각각 #BDBB40, #9F9F30, #CDD474로 고정한다. 그 외 semantic token은 temp/Light.tokens.json, temp/Dark.tokens.json, temp/Mode 1.tokens.json을 기준으로 작성한다.
+description: 잔반제로는 식사 촬영, 잔반 리뷰, 보관 식재료, 레시피 추천을 연결하는 모바일 우선 PWA다. 브랜드는 식기와 채소 심볼을 중심으로 한 올리브-라임 계열을 사용하되, 운영형 앱답게 화면 구조는 조용하고 스캔 가능해야 한다. Primary, secondary, tertiary는 각각 #BDBB40, #9F9F30, #CDD474로 고정한다. 그 외 semantic token은 이 문서의 colors 및 darkColors 섹션을 기준으로 작성한다.
 
 colors:
   primary: "#BDBB40"
