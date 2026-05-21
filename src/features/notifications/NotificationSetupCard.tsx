@@ -65,7 +65,17 @@ export function NotificationSetupCard() {
         return
       }
 
-      setNotificationState('ready', result.message)
+      if (result.status === 'missing-vapid-key') {
+        setNotificationState('error', result.message)
+        return
+      }
+
+      if (result.status === 'subscribed') {
+        setNotificationState('ready', result.message)
+        return
+      }
+
+      setNotificationState('error', result.message)
     } catch (error) {
       setNotificationState(
         'error',
