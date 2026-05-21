@@ -68,7 +68,7 @@ export function InventoryTab() {
       name: formName,
       quantity: formQuantity || '1개',
       location: formLocation,
-      expiresAt: formExpiresAt,
+      expiresAt: formExpiresAt || getRelativeDateString(3),
     })
     setIsAddOpen(false)
   }
