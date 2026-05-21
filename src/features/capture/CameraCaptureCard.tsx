@@ -50,24 +50,27 @@ export function CameraCaptureCard() {
   return (
     <Panel
       id="capture"
-      className="camera-panel"
+      className="space-y-4"
       eyebrow="Camera"
       title="식판 촬영"
       description={<p>{cameraMessage}</p>}
     >
-      <div className="camera-frame">
+      <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
         <video
           ref={videoRef}
           aria-label="카메라 미리보기"
           autoPlay
           muted
           playsInline
+          className="h-full w-full object-cover"
         />
-        {!cameraIsActive && <span>Preview</span>}
+        {!cameraIsActive && (
+          <span className="absolute text-sm font-medium text-slate-500">Preview</span>
+        )}
       </div>
       <button
         type="button"
-        className="primary-action"
+        className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
         disabled={cameraHookStatus === 'starting'}
         onClick={handleCameraToggle}
       >
