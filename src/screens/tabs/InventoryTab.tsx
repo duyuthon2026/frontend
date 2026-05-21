@@ -89,7 +89,7 @@ export function InventoryTab() {
       name: formName,
       quantity: formQuantity,
       location: formLocation,
-      expiresAt: formExpiresAt,
+      expiresAt: formExpiresAt || selectedItem.expiresAt,
     })
     setIsEditing(false)
   }
@@ -427,6 +427,7 @@ export function InventoryTab() {
                           className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[var(--color-content-default)] px-4 font-normal focus:outline-none focus:border-[var(--color-primary)] transition-colors"
                           value={formExpiresAt}
                           onChange={(e) => setFormExpiresAt(e.target.value)}
+                          required
                         />
                       </label>
                     </div>
