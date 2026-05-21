@@ -1,4 +1,18 @@
+import { useEffect, useState } from 'react'
 import { registerSW } from 'virtual:pwa-register'
+import { brand } from '../config/brand'
+
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>
+  userChoice: Promise<{
+    outcome: 'accepted' | 'dismissed'
+    platform: string
+  }>
+}
+
+type StandaloneNavigator = Navigator & {
+  standalone?: boolean
+}
 
 type ServiceWorkerRegistrationResult =
   | {
@@ -23,6 +37,10 @@ export type PushSetupResult =
 
 let didRegisterServiceWorker = false
 let serviceWorkerReady: Promise<ServiceWorkerRegistration> | null = null
+let cachedInstallPromptEvent: BeforeInstallPromptEvent | null = null
+let cachedIsInstallable = false
+
+const installPromptSubscribers = new Set<() => void>()
 
 export function registerAppServiceWorker(): ServiceWorkerRegistrationResult {
   if (!('serviceWorker' in navigator)) {
@@ -65,7 +83,7 @@ export async function setupPushNotifications(
 
   if (!window.isSecureContext) {
     return {
-      message: 'Push notifications require HTTPS or localhost.',
+      message: '푸시 알림은 HTTPS 또는 localhost에서 동작합니다.',
       status: 'unsupported',
     }
   }
@@ -74,7 +92,7 @@ export async function setupPushNotifications(
 
   if (permission !== 'granted') {
     return {
-      message: 'Notification permission was not granted.',
+      message: '알림 권한이 허용되지 않았습니다.',
       status: 'blocked',
     }
   }
@@ -84,7 +102,7 @@ export async function setupPushNotifications(
 
   if (existingSubscription) {
     return {
-      message: 'Push subscription is already ready.',
+      message: '푸시 구독이 이미 준비되었습니다.',
       status: 'subscribed',
       subscription: existingSubscription.toJSON(),
     }
@@ -92,7 +110,7 @@ export async function setupPushNotifications(
 
   if (!vapidPublicKey.trim()) {
     return {
-      message: 'Notification permission is ready. Add VITE_VAPID_PUBLIC_KEY to create a push subscription.',
+      message: '알림 권한 준비 완료. VITE_VAPID_PUBLIC_KEY 설정 뒤 푸시 구독 생성.',
       status: 'missing-vapid-key',
     }
   }
@@ -103,7 +121,7 @@ export async function setupPushNotifications(
   })
 
   return {
-    message: 'Push subscription is ready.',
+    message: '푸시 구독 준비 완료.',
     status: 'subscribed',
     subscription: subscription.toJSON(),
   }
@@ -120,12 +138,12 @@ export async function showLocalTestNotification(): Promise<void> {
 
   const registration = await getServiceWorkerRegistration()
 
-  await registration.showNotification('Bunruntime is ready', {
-    badge: '/pwa-192.png',
-    body: 'Service worker notification path is working.',
+  await registration.showNotification(`${brand.appName} 준비 완료`, {
+    badge: brand.appIconPng,
+    body: '서비스 워커 알림 경로가 동작합니다.',
     data: { url: '/' },
-    icon: '/pwa-192.png',
-    tag: 'bunruntime-local-test',
+    icon: brand.appIconPng,
+    tag: 'janban-zero-local-test',
   })
 }
 
@@ -150,4 +168,101 @@ function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {
   }
 
   return output
+}
+
+export function usePWAInstall() {
+  const [installPromptEvent, setInstallPromptEvent] =
+    useState<BeforeInstallPromptEvent | null>(cachedInstallPromptEvent)
+  const [isInstallable, setIsInstallable] = useState(cachedIsInstallable)
+  const [isStandalone, setIsStandalone] = useState(getIsStandaloneMode)
+  const [isIOS] = useState(getIsIOSDevice)
+
+  useEffect(() => {
+    const syncCachedPrompt = () => {
+      setInstallPromptEvent(cachedInstallPromptEvent)
+      setIsInstallable(cachedIsInstallable)
+    }
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      if (!isBeforeInstallPromptEvent(event)) return
+
+      event.preventDefault()
+      cacheInstallPrompt(event, true)
+    }
+
+    const handleAppInstalled = () => {
+      cacheInstallPrompt(null, false)
+      setIsStandalone(true)
+    }
+
+    installPromptSubscribers.add(syncCachedPrompt)
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+    window.addEventListener('appinstalled', handleAppInstalled)
+
+    return () => {
+      installPromptSubscribers.delete(syncCachedPrompt)
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+      window.removeEventListener('appinstalled', handleAppInstalled)
+    }
+  }, [])
+
+  const installApp = async () => {
+    if (!installPromptEvent) return false
+    await installPromptEvent.prompt()
+    const { outcome } = await installPromptEvent.userChoice
+    cacheInstallPrompt(null, false)
+    return outcome === 'accepted'
+  }
+
+  return {
+    isInstallable,
+    isStandalone,
+    isIOS,
+    installApp,
+  }
+}
+
+function cacheInstallPrompt(
+  promptEvent: BeforeInstallPromptEvent | null,
+  isInstallable: boolean,
+) {
+  cachedInstallPromptEvent = promptEvent
+  cachedIsInstallable = isInstallable
+  installPromptSubscribers.forEach((subscriber) => subscriber())
+}
+
+function getIsStandaloneMode() {
+  if (typeof window === 'undefined') return false
+
+  const standaloneNavigator: StandaloneNavigator = window.navigator
+
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    standaloneNavigator.standalone === true
+  )
+}
+
+function getIsIOSDevice() {
+  if (typeof window === 'undefined') return false
+
+  return /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase())
+}
+
+function isBeforeInstallPromptEvent(event: Event): event is BeforeInstallPromptEvent {
+  const userChoice =
+    'userChoice' in event ? (event as { userChoice?: unknown }).userChoice : undefined
+
+  return (
+    'prompt' in event &&
+    typeof event.prompt === 'function' &&
+    userChoice !== undefined &&
+    isPromiseLike(userChoice)
+  )
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('then' in value)) return false
+
+  return typeof value.then === 'function'
 }
