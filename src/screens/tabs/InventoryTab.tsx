@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { Icon } from '../../components/ui/Icons'
 import { QuantityInput } from '../../components/ui/QuantityInput'
@@ -10,17 +10,19 @@ import {
   parseQuantityLabel,
 } from '../../lib/quantity'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
-import { calculateDaysLeft, calculateStatus, type InventoryItem } from '../../domain/prototype'
+import {
+  calculateDaysLeft,
+  calculateStatus,
+  storageLocations,
+  type InventoryItem,
+  type StorageLocation,
+} from '../../domain/prototype'
+import { getRelativeDateString } from '../../lib/date'
 
 type FilterType = 'all' | '냉장' | '냉동' | '실온' | '임박'
-type StorageLocation = '냉장' | '냉동' | '실온'
 type FormSubmitEvent = { preventDefault: () => void }
 
-const storageLocations: StorageLocation[] = ['냉장', '냉동', '실온']
 const filterTypes: FilterType[] = ['all', '냉장', '냉동', '실온', '임박']
-
-const isStorageLocation = (location: string): location is StorageLocation =>
-  storageLocations.some((candidate) => candidate === location)
 
 export function InventoryTab() {
   const items = usePrototypeStore((state) => state.items)
@@ -46,22 +48,27 @@ export function InventoryTab() {
 
   const selectedItem = items.find((i) => i.id === selectedItemId)
 
-  const getRelativeDateString = (daysOffset: number): string => {
-    const d = new Date()
-    const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate() + daysOffset)
-    const yyyy = localDate.getFullYear()
-    const mm = String(localDate.getMonth() + 1).padStart(2, '0')
-    const dd = String(localDate.getDate()).padStart(2, '0')
-    return `${yyyy}-${mm}-${dd}`
-  }
+  const handleCloseDetail = useCallback(() => {
+    setSelectedItemId(null)
+    setIsEditing(false)
+    setIsDeleting(false)
+  }, [])
+
+  const handleCloseAdd = useCallback(() => {
+    setIsAddOpen(false)
+  }, [])
 
   const handleOpenDetail = (item: InventoryItem) => {
+    setIsAddOpen(false)
     setSelectedItemId(item.id)
     setIsEditing(false)
     setIsDeleting(false)
   }
 
   const handleOpenAdd = () => {
+    setSelectedItemId(null)
+    setIsEditing(false)
+    setIsDeleting(false)
     setFormName('')
     setFormQuantityAmount('')
     setFormQuantityUnit('개')
@@ -98,7 +105,7 @@ export function InventoryTab() {
     setFormName(selectedItem.name)
     setFormQuantityAmount(parsedQuantity.amount)
     setFormQuantityUnit(parsedQuantity.unit)
-    setFormLocation(isStorageLocation(selectedItem.location) ? selectedItem.location : '냉장')
+    setFormLocation(selectedItem.location)
     setFormExpiresAt(selectedItem.expiresAt)
     setIsEditing(true)
   }
@@ -179,7 +186,7 @@ export function InventoryTab() {
               className="absolute right-3 flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-bg-sunken)] text-[var(--color-content-muted)] hover:text-[var(--color-content-default)] transition-colors border-0 cursor-pointer"
               aria-label="검색어 지우기"
             >
-              <span className="material-symbols-rounded text-sm" aria-hidden="true">close</span>
+              <Icon.Close size={16} />
             </button>
           )}
         </div>
@@ -316,7 +323,7 @@ export function InventoryTab() {
           <>
             <SwipeableBottomSheet
               ariaLabel={`${selectedItem.name} 식재료 세부 정보`}
-              onClose={() => setSelectedItemId(null)}
+              onClose={handleCloseDetail}
             >
               {!isEditing ? (
                 <div className="grid gap-5">
@@ -490,7 +497,7 @@ export function InventoryTab() {
           <>
             <SwipeableBottomSheet
               ariaLabel="새로운 식재료 직접 등록"
-              onClose={() => setIsAddOpen(false)}
+              onClose={handleCloseAdd}
             >
               <form onSubmit={handleAddSubmit} className="grid gap-4.5">
                 <div className="flex items-center justify-between">

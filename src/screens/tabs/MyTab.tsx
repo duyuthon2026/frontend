@@ -1,5 +1,6 @@
 import { Icon } from '../../components/ui/Icons'
 import { mySettingGroups } from '../../domain/prototype'
+import { NotificationSetupCard } from '../../features/notifications/NotificationSetupCard'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
 import { usePWAInstall } from '../../lib/pwa'
 
@@ -60,7 +61,7 @@ export function MyTab() {
           {isInstallable && (
             <button
               type="button"
-              onClick={installApp}
+              onClick={() => void installApp()}
               className="min-h-10 w-full rounded-xl bg-[var(--color-primary)] text-[var(--color-on-primary)] font-extrabold text-[0.8rem] shadow-sm border-0 cursor-pointer mt-1"
             >
               앱 설치하기
@@ -68,6 +69,8 @@ export function MyTab() {
           )}
         </div>
       )}
+
+      <NotificationSetupCard />
 
       <div className="grid gap-4">
         {mySettingGroups.map((group) => (

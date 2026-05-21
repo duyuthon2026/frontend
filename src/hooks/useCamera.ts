@@ -20,12 +20,15 @@ export type CameraState = {
 }
 
 export function useCamera(): CameraState {
+  const isMountedRef = useRef(true)
+  const requestIdRef = useRef(0)
   const streamRef = useRef<MediaStream | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [error, setError] = useState('')
   const [status, setStatus] = useState<CameraState['status']>('idle')
 
   const stopCamera = useCallback(() => {
+    requestIdRef.current += 1
     streamRef.current?.getTracks().forEach((track) => track.stop())
     streamRef.current = null
 
@@ -33,21 +36,37 @@ export function useCamera(): CameraState {
       videoRef.current.srcObject = null
     }
 
-    setStatus('idle')
+    if (isMountedRef.current) {
+      setStatus('idle')
+    }
   }, [])
 
   const startCamera = useCallback(async () => {
+    const requestId = requestIdRef.current + 1
+    requestIdRef.current = requestId
+
     if (!navigator.mediaDevices?.getUserMedia) {
-      setError('This browser does not support camera access.')
-      setStatus('unsupported')
+      if (isMountedRef.current) {
+        setError('이 브라우저는 카메라 접근을 지원하지 않습니다.')
+        setStatus('unsupported')
+      }
       return
     }
 
     setError('')
     setStatus('starting')
 
+    let stream: MediaStream | null = null
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(cameraConstraints)
+      stream = await navigator.mediaDevices.getUserMedia(cameraConstraints)
+
+      if (!isMountedRef.current || requestIdRef.current !== requestId) {
+        stopStream(stream)
+        return
+      }
+
+      streamRef.current?.getTracks().forEach((track) => track.stop())
       streamRef.current = stream
 
       if (videoRef.current) {
@@ -55,18 +74,31 @@ export function useCamera(): CameraState {
         await videoRef.current.play()
       }
 
-      setStatus('active')
+      if (isMountedRef.current && requestIdRef.current === requestId) {
+        setStatus('active')
+      }
     } catch (cameraError) {
-      setError(
-        cameraError instanceof Error
-          ? cameraError.message
-          : 'Unable to start the camera.',
-      )
-      setStatus('error')
+      if (stream) {
+        stopStream(stream)
+      }
+
+      if (isMountedRef.current && requestIdRef.current === requestId) {
+        setError(
+          cameraError instanceof Error
+            ? cameraError.message
+            : '카메라를 시작할 수 없습니다.',
+        )
+        setStatus('error')
+      }
     }
   }, [])
 
-  useEffect(() => stopCamera, [stopCamera])
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false
+      stopCamera()
+    }
+  }, [stopCamera])
 
   return {
     error,
@@ -76,4 +108,8 @@ export function useCamera(): CameraState {
     stopCamera,
     videoRef,
   }
+}
+
+function stopStream(stream: MediaStream) {
+  stream.getTracks().forEach((track) => track.stop())
 }

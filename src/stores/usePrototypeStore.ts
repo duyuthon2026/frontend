@@ -6,16 +6,19 @@ import {
   type InventoryViewId,
   type LensStepId,
   type RecipeViewId,
+  type StorageLocation,
   type InventoryItem,
   type RecipeCard,
   inventoryItems as initialItems,
+  isStorageLocation,
   recipeCards as initialRecipes,
 } from '../domain/prototype'
+import { getRelativeDateString, isIsoLocalDateString } from '../lib/date'
 
 const createItemId = (scope: string) =>
   `i_${Date.now()}_${scope}_${Math.random().toString(36).slice(2, 11)}`
 
-const reduceQuantityLabel = (quantity: string) => {
+export const reduceQuantityLabel = (quantity: string) => {
   const trimmed = quantity.trim()
   const fractionalCount = trimmed.match(/^\d+\s*\/\s*\d+\s*(개|팩|송이|장|알|모)$/)
   if (fractionalCount) return null
@@ -36,20 +39,11 @@ const reduceQuantityLabel = (quantity: string) => {
   return trimmed || null
 }
 
-const getRelativeDateString = (daysOffset: number): string => {
-  const d = new Date()
-  const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate() + daysOffset)
-  const yyyy = localDate.getFullYear()
-  const mm = String(localDate.getMonth() + 1).padStart(2, '0')
-  const dd = String(localDate.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
-
 export type LensCandidate = {
   id: string
   name: string
   quantity: string
-  location: string
+  location: StorageLocation
   expiresAt: string
 }
 
@@ -79,7 +73,7 @@ const normalizePersistedItem = (value: unknown): InventoryItem | null => {
   if (!isNonEmptyString(value.id) || !isNonEmptyString(value.name)) return null
 
   const daysLeft = value.daysLeft
-  const expiresAt = isNonEmptyString(value.expiresAt)
+  const expiresAt = isIsoLocalDateString(value.expiresAt)
     ? value.expiresAt
     : typeof daysLeft === 'number' && Number.isFinite(daysLeft)
       ? getRelativeDateString(daysLeft)
@@ -89,7 +83,7 @@ const normalizePersistedItem = (value: unknown): InventoryItem | null => {
     id: value.id,
     name: value.name,
     quantity: isNonEmptyString(value.quantity) ? value.quantity : '1개',
-    location: isNonEmptyString(value.location) ? value.location : '냉장',
+    location: isStorageLocation(value.location) ? value.location : '냉장',
     expiresAt,
   }
 }
@@ -146,7 +140,7 @@ const normalizePersistedRecipe = (value: unknown): RecipeCard | null => {
   }
 }
 
-const migratePersistedState = (persistedState: unknown): PersistedPrototypeState => {
+export const migratePersistedState = (persistedState: unknown): PersistedPrototypeState => {
   if (!isRecord(persistedState)) {
     return {
       items: initialItems,

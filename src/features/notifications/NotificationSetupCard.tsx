@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Panel } from '../../components/ui/Panel'
 import { StatusPill } from '../../components/ui/StatusPill'
 import {
-  registerAppServiceWorker,
+  getAppServiceWorkerReadiness,
   setupPushNotifications,
   showLocalTestNotification,
 } from '../../lib/pwa'
@@ -27,7 +27,7 @@ export function NotificationSetupCard() {
     typeof Notification !== 'undefined' && Notification.permission === 'granted'
 
   useEffect(() => {
-    const serviceWorker = registerAppServiceWorker()
+    const serviceWorker = getAppServiceWorkerReadiness()
 
     if (!serviceWorker.supported) {
       setServiceWorkerState('unsupported', '서비스 워커 미지원')
@@ -121,7 +121,7 @@ export function NotificationSetupCard() {
           type="button"
           className="flex min-h-11 items-center justify-center rounded-xl border-0 bg-[var(--color-primary)] px-4 text-[0.84rem] font-extrabold text-[var(--color-on-primary)] shadow-[var(--shadow-glass)] transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={notificationStatus === 'checking'}
-          onClick={handleEnablePush}
+          onClick={() => void handleEnablePush()}
         >
           {notificationStatus === 'checking' ? '확인 중' : '알림 켜기'}
         </button>
@@ -129,7 +129,7 @@ export function NotificationSetupCard() {
           type="button"
           className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-4 text-[0.82rem] font-bold text-[var(--color-content-default)] transition-all hover:border-[var(--color-border-brand)] disabled:cursor-not-allowed disabled:opacity-60"
           disabled={isTestingNotification || !canSendTestNotification}
-          onClick={handleTestNotification}
+          onClick={() => void handleTestNotification()}
         >
           {isTestingNotification ? '발송 중' : '테스트'}
         </button>

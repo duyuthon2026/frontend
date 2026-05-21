@@ -1,75 +1,52 @@
-# React + TypeScript + Vite
+# 잔반제로 Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+잔반제로는 냉장고/영수증 사진 또는 자연어 입력으로 보관 식재료를 정리하고, 소비기한이 임박한 재료를 먼저 소진하도록 레시피 추천으로 연결하는 모바일 우선 PWA 프로토타입입니다.
 
-Currently, two official plugins are available:
+## 현재 범위
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React SPA 기반 모바일 PWA 셸
+- Zustand + localStorage 기반 인벤토리/레시피/선택 식재료 상태 관리
+- 카메라 접근, 사진 업로드, 자연어 입력 기반 식재료 후보 등록 UX
+- 소비기한 기반 홈 대시보드와 캘린더
+- 보유 식재료 기반 레시피 매칭/저장/소진 플로우
+- 서비스워커 등록, 설치 프롬프트, 푸시 구독/테스트 알림 인프라
 
-## React Compiler
+실제 백엔드 API, OCR/이미지 인식, AI normalize, 서버 푸시 스케줄링은 아직 연결되지 않았습니다. 상세 범위는 `PRD.md`, 디자인 토큰/원칙은 `DESIGN.md`를 참고하세요.
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+## 기술 스택
 
-Note: This will impact Vite dev & build performances.
+- React 19 + TypeScript 6
+- Vite 8 + React Compiler
+- Tailwind CSS 4
+- Zustand 5
+- framer-motion
+- vite-plugin-pwa + Workbox injectManifest
+- Vitest + jsdom
 
-## Expanding the ESLint configuration
+## 스크립트
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+bun run dev          # 개발 서버
+bun run typecheck    # TypeScript project references 전체 타입체크
+bun run lint         # ESLint(type-aware 포함)
+bun run test         # Vitest 단위 테스트
+bun run build        # 타입체크 후 프로덕션 빌드
+bun run preview      # 빌드 결과 미리보기
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## 환경 변수
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+`.env.example`을 복사해 `.env`를 만들고 필요한 값만 설정합니다.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- `VITE_VAPID_PUBLIC_KEY`: Web Push VAPID 공개키. 비어 있으면 권한 요청/테스트 알림만 가능하고 서버 푸시 구독 생성은 보류됩니다.
+- `VITE_DEV_SERVER_HOST`: `1`, `true`, `yes`, `on`이면 Vite 개발 서버가 외부 호스트 바인딩을 허용합니다. 로컬 네트워크 테스트에만 사용하세요.
+
+## 품질 기준
+
+현재 저장소는 strict TypeScript, type-aware ESLint, Vitest 단위 테스트를 기본 검증 루프로 사용합니다. 주요 로직을 수정한 경우 최소한 다음을 실행하세요.
+
+```bash
+bun run lint
+bun run test
+bun run build
 ```

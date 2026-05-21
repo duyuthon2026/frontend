@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { ErrorBoundary } from '../components/ui/ErrorBoundary'
 import { usePrototypeStore } from '../stores/usePrototypeStore'
 
 const HomeTab = lazy(() => import('./tabs/HomeTab').then((module) => ({ default: module.HomeTab })))
@@ -29,13 +30,15 @@ export function AppPrototypeScreen() {
         exit={{ opacity: 0, y: -12 }}
         transition={{ duration: 0.24, ease: [0.25, 1, 0.5, 1] }}
       >
-        <Suspense fallback={<ScreenFallback />}>
-          {activeTab === 'home' && <HomeTab />}
-          {activeTab === 'inventory' && <InventoryTab />}
-          {activeTab === 'lens' && <LensTab />}
-          {activeTab === 'recipes' && <RecipesTab />}
-          {activeTab === 'my' && <MyTab />}
-        </Suspense>
+        <ErrorBoundary key={activeTab} fallbackTitle="탭 화면을 불러오지 못했습니다">
+          <Suspense fallback={<ScreenFallback />}>
+            {activeTab === 'home' && <HomeTab />}
+            {activeTab === 'inventory' && <InventoryTab />}
+            {activeTab === 'lens' && <LensTab />}
+            {activeTab === 'recipes' && <RecipesTab />}
+            {activeTab === 'my' && <MyTab />}
+          </Suspense>
+        </ErrorBoundary>
       </motion.main>
     </AnimatePresence>
   )

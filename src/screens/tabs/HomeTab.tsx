@@ -2,6 +2,7 @@ import { MetricCard } from '../../components/ui/MetricCard'
 import { Panel } from '../../components/ui/Panel'
 import { Icon } from '../../components/ui/Icons'
 import { type HomeState, type HomeStateId, calculateDaysLeft, type InventoryItem } from '../../domain/prototype'
+import { formatLocalDate } from '../../lib/date'
 import { cn } from '../../lib/cn'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
 
@@ -79,13 +80,6 @@ export function HomeTab() {
   }
 
   const allCalendarDays = [...prevMonthDays, ...currentMonthDays, ...nextMonthDays]
-
-  const formatLocalDate = (date: Date): string => {
-    const yyyy = date.getFullYear()
-    const mm = String(date.getMonth() + 1).padStart(2, '0')
-    const dd = String(date.getDate()).padStart(2, '0')
-    return `${yyyy}-${mm}-${dd}`
-  }
 
   const getItemsExpiringOnDate = (date: Date) => {
     const dateStr = formatLocalDate(date)

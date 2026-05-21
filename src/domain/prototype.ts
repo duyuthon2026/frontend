@@ -1,3 +1,5 @@
+import { getRelativeDateString, parseLocalDate } from '../lib/date'
+
 export type AppTabId = 'home' | 'inventory' | 'lens' | 'recipes' | 'my'
 export type HomeStateId = 'default' | 'empty' | 'expiring' | 'overdue'
 export type LensStepId =
@@ -10,6 +12,8 @@ export type LensStepId =
   | 'complete'
 export type InventoryViewId = 'list' | 'filter' | 'detail' | 'add' | 'edit' | 'delete'
 export type RecipeViewId = 'main' | 'search' | 'conditions' | 'detail' | 'saved' | 'complete'
+export const storageLocations = ['냉장', '냉동', '실온'] as const
+export type StorageLocation = (typeof storageLocations)[number]
 
 export type AppTab = {
   id: AppTabId
@@ -37,7 +41,7 @@ export type InventoryItem = {
   id: string
   name: string
   quantity: string
-  location: string
+  location: StorageLocation
   expiresAt: string // YYYY-MM-DD
 }
 
@@ -55,15 +59,15 @@ export type RecipeCard = {
   time: string
 }
 
-export const parseLocalDate = (dateStr: string): Date => {
-  const [year, month, day] = dateStr.split('-').map(Number)
-  return new Date(year, month - 1, day)
-}
+export const isStorageLocation = (location: unknown): location is StorageLocation =>
+  typeof location === 'string' && storageLocations.some((candidate) => candidate === location)
 
 export const calculateDaysLeft = (expiresAt: string): number => {
   const today = new Date()
   const todayLocal = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   const targetLocal = parseLocalDate(expiresAt)
+  if (!targetLocal) return 0
+
   const diffTime = targetLocal.getTime() - todayLocal.getTime()
   return Math.round(diffTime / (1000 * 60 * 60 * 24))
 }
@@ -72,15 +76,6 @@ export const calculateStatus = (daysLeft: number): 'safe' | 'soon' | 'overdue' =
   if (daysLeft < 0) return 'overdue'
   if (daysLeft <= 2) return 'soon'
   return 'safe'
-}
-
-const getRelativeDateString = (daysOffset: number): string => {
-  const d = new Date()
-  const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate() + daysOffset)
-  const yyyy = localDate.getFullYear()
-  const mm = String(localDate.getMonth() + 1).padStart(2, '0')
-  const dd = String(localDate.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
 }
 
 export const appTabs: AppTab[] = [

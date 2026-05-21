@@ -4,14 +4,18 @@ import { Icon } from '../../components/ui/Icons'
 import { QuantityInput } from '../../components/ui/QuantityInput'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
 import { useCamera } from '../../hooks/useCamera'
-import { calculateDaysLeft } from '../../domain/prototype'
+import { calculateDaysLeft, storageLocations, type StorageLocation } from '../../domain/prototype'
 import { cn } from '../../lib/cn'
 import {
   formatQuantityLabel,
   getDefaultQuantityUnit,
-  parseQuantityFromText,
   parseQuantityLabel,
 } from '../../lib/quantity'
+import { parseLensNaturalText } from '../../lib/lensParser'
+import {
+  shouldRemoveCandidateBySwipe,
+  shouldSuppressCandidateClickAfterSwipe,
+} from '../../lib/swipe'
 
 type FormSubmitEvent = { preventDefault: () => void }
 type LensCandidate = ReturnType<typeof usePrototypeStore.getState>['lensCandidates'][number]
@@ -79,14 +83,23 @@ export function LensTab() {
   const [expandedCandidateIds, setExpandedCandidateIds] = useState<string[]>([])
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const suppressedCandidateClickRef = useRef<string | null>(null)
+  const suppressedCandidateClickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const { startCamera, stopCamera, videoRef, isActive: isCameraActive } = useCamera()
+  const {
+    error: cameraError,
+    startCamera,
+    status: cameraStatus,
+    stopCamera,
+    videoRef,
+    isActive: isCameraActive,
+  } = useCamera()
 
   const [editingCandidateId, setEditingCandidateId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [editQuantityAmount, setEditQuantityAmount] = useState('')
   const [editQuantityUnit, setEditQuantityUnit] = useState('개')
-  const [editLocation, setEditLocation] = useState('냉장')
+  const [editLocation, setEditLocation] = useState<StorageLocation>('냉장')
   const [editExpiresAt, setEditExpiresAt] = useState('')
 
   const confidenceScore = candidates.length > 0
@@ -139,6 +152,14 @@ export function LensTab() {
     }
   }, [uploadedImageUrl])
 
+  useEffect(() => {
+    return () => {
+      if (suppressedCandidateClickTimeoutRef.current) {
+        clearTimeout(suppressedCandidateClickTimeoutRef.current)
+      }
+    }
+  }, [])
+
   const handleShutterClick = () => {
     stopCamera()
     setProgress(0)
@@ -163,37 +184,15 @@ export function LensTab() {
     e.preventDefault()
     if (!naturalText.trim()) return
 
-    const text = naturalText.trim()
-    let parsedName = text
-    let parsedQty = parseQuantityFromText(text, getDefaultQuantityUnit(text, '개'))
-    let parsedDays = 3
-
-    if (text.includes('두부')) {
-      parsedName = '두부'
-      parsedQty = parseQuantityFromText(text, '모')
-      parsedDays = 3
-    } else if (text.includes('애호박')) {
-      parsedName = '애호박'
-      parsedQty = parseQuantityFromText(text, '개')
-      parsedDays = 2
-    }
-
-    const d = new Date()
-    const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate() + parsedDays)
-    const yyyy = localDate.getFullYear()
-    const mm = String(localDate.getMonth() + 1).padStart(2, '0')
-    const dd = String(localDate.getDate()).padStart(2, '0')
-    const expiresAt = `${yyyy}-${mm}-${dd}`
+    const parsedCandidate = parseLensNaturalText(naturalText)
+    if (!parsedCandidate) return
 
     const candidateId = `c_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
 
     setCandidates([
       {
         id: candidateId,
-        name: parsedName,
-        quantity: formatQuantityLabel(parsedQty.amount, parsedQty.unit),
-        location: '냉장',
-        expiresAt,
+        ...parsedCandidate,
       },
       ...candidates,
     ])
@@ -237,6 +236,27 @@ export function LensTab() {
     setExpandedCandidateIds((ids) =>
       ids.includes(id) ? ids.filter((candidateId) => candidateId !== id) : [id, ...ids],
     )
+  }
+
+  const handleCandidateSummaryClick = (id: string) => {
+    if (suppressedCandidateClickRef.current === id) {
+      suppressedCandidateClickRef.current = null
+      return
+    }
+
+    handleToggleCandidate(id)
+  }
+
+  const suppressNextCandidateClick = (id: string) => {
+    if (suppressedCandidateClickTimeoutRef.current) {
+      clearTimeout(suppressedCandidateClickTimeoutRef.current)
+    }
+
+    suppressedCandidateClickRef.current = id
+    suppressedCandidateClickTimeoutRef.current = setTimeout(() => {
+      suppressedCandidateClickRef.current = null
+      suppressedCandidateClickTimeoutRef.current = null
+    }, 350)
   }
 
   const handleRemoveCandidate = (id: string) => {
@@ -288,76 +308,85 @@ export function LensTab() {
             className="grid gap-4.5"
           >
             {!isNaturalMode ? (
-              <div
-                className="relative overflow-hidden aspect-[4/3] rounded-2xl bg-[var(--color-camera-bg)] border border-[var(--color-camera-border)] shadow-[var(--shadow-premium)] flex flex-col items-center justify-center text-[var(--color-camera-content)]"
-                aria-label="카메라 미리보기"
-              >
-                {isCameraActive ? (
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                ) : previewImageUrl ? (
-                  <img
-                    src={previewImageUrl}
-                    alt="Uploaded preview"
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                ) : null}
+              <>
+                <div
+                  className="relative overflow-hidden aspect-[4/3] rounded-2xl bg-[var(--color-camera-bg)] border border-[var(--color-camera-border)] shadow-[var(--shadow-premium)] flex flex-col items-center justify-center text-[var(--color-camera-content)]"
+                  aria-label="카메라 미리보기"
+                >
+                  {isCameraActive ? (
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : previewImageUrl ? (
+                    <img
+                      src={previewImageUrl}
+                      alt="Uploaded preview"
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : null}
 
-                <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none opacity-20">
-                  {scanGridCells.map((i) => (
-                    <div key={i} className="border border-[var(--color-camera-content)]/40" />
-                  ))}
-                </div>
+                  <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none opacity-20">
+                    {scanGridCells.map((i) => (
+                      <div key={i} className="border border-[var(--color-camera-content)]/40" />
+                    ))}
+                  </div>
 
-                <div className="absolute h-36 w-36 rounded-2xl border border-dashed border-[var(--color-primary)]/60 flex items-center justify-center pointer-events-none">
-                  <div className="h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" />
-                </div>
+                  <div className="absolute h-36 w-36 rounded-2xl border border-dashed border-[var(--color-primary)]/60 flex items-center justify-center pointer-events-none">
+                    <div className="h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" />
+                  </div>
 
-                <div className="absolute left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[var(--color-primary)] to-transparent scanner-laser pointer-events-none" />
+                  <div className="absolute left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[var(--color-primary)] to-transparent scanner-laser pointer-events-none" />
 
-                <div className="flex flex-col items-center gap-1.5 z-10 px-6 text-center bg-[var(--color-camera-bg)]/40 p-4 rounded-xl backdrop-blur-sm max-w-[85%]">
-                  <Icon.Camera size={40} className="text-[var(--color-primary)] opacity-90 animate-pulse" />
-                  <span className="text-[0.82rem] font-extrabold text-[var(--color-camera-muted)] mt-1">
-                    {isCameraActive ? '실시간 카메라 작동 중' : '카메라 촬영 시뮬레이터'}
-                  </span>
-                  <span className="text-[0.7rem] font-medium text-[var(--color-camera-subtle)] leading-relaxed">
-                    {isCameraActive
-                      ? '화면 중앙에 영수증이나 식재료를 맞추고 촬영 버튼을 누르세요.'
-                      : '실제 카메라를 켜거나, 사진 파일을 업로드하여 식재료를 스캔할 수 있습니다.'}
-                  </span>
-                </div>
+                  <div className="flex flex-col items-center gap-1.5 z-10 px-6 text-center bg-[var(--color-camera-bg)]/40 p-4 rounded-xl backdrop-blur-sm max-w-[85%]">
+                    <Icon.Camera size={40} className="text-[var(--color-primary)] opacity-90 animate-pulse" />
+                    <span className="text-[0.82rem] font-extrabold text-[var(--color-camera-muted)] mt-1">
+                      {isCameraActive ? '실시간 카메라 작동 중' : '카메라 촬영 시뮬레이터'}
+                    </span>
+                    <span className="text-[0.7rem] font-medium text-[var(--color-camera-subtle)] leading-relaxed">
+                      {isCameraActive
+                        ? '화면 중앙에 영수증이나 식재료를 맞추고 촬영 버튼을 누르세요.'
+                        : '실제 카메라를 켜거나, 사진 파일을 업로드하여 식재료를 스캔할 수 있습니다.'}
+                    </span>
+                  </div>
 
-                {isCameraActive ? (
-                  <button
-                    type="button"
-                    onClick={handleShutterClick}
-                    className="absolute bottom-6 left-1/2 -translate-x-1/2 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-camera-control-bg)] text-[var(--color-camera-control-content)] border-4 border-[var(--color-camera-border)]/40 shadow-lg active:scale-90 transition-transform cursor-pointer"
-                    aria-label="촬영 버튼"
-                  />
-                ) : (
-                  <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-3">
-                    <button
-                      type="button"
-                      onClick={startCamera}
-                      className="px-4 py-2 rounded-xl bg-[var(--color-primary)] text-[var(--color-on-primary)] font-bold text-xs border-0 cursor-pointer shadow-md"
-                    >
-                      카메라 켜기
-                    </button>
+                  {isCameraActive ? (
                     <button
                       type="button"
                       onClick={handleShutterClick}
-                      className="px-4 py-2 rounded-xl bg-[var(--color-camera-control-bg)] text-[var(--color-camera-control-content)] font-bold text-xs border-0 cursor-pointer shadow-md"
-                    >
-                      시뮬레이터 촬영
-                    </button>
+                      className="absolute bottom-6 left-1/2 -translate-x-1/2 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-camera-control-bg)] text-[var(--color-camera-control-content)] border-4 border-[var(--color-camera-border)]/40 shadow-lg active:scale-90 transition-transform cursor-pointer"
+                      aria-label="촬영 버튼"
+                    />
+                  ) : (
+                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => void startCamera()}
+                        disabled={cameraStatus === 'starting'}
+                        className="px-4 py-2 rounded-xl bg-[var(--color-primary)] text-[var(--color-on-primary)] font-bold text-xs border-0 cursor-pointer shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {cameraStatus === 'starting' ? '여는 중' : '카메라 켜기'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleShutterClick}
+                        className="px-4 py-2 rounded-xl bg-[var(--color-camera-control-bg)] text-[var(--color-camera-control-content)] font-bold text-xs border-0 cursor-pointer shadow-md"
+                      >
+                        시뮬레이터 촬영
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {(cameraStatus === 'error' || cameraStatus === 'unsupported') && (
+                  <div className="rounded-xl border border-[var(--color-error)]/30 bg-[var(--color-surface-danger-soft)]/30 p-3 text-[0.74rem] font-semibold leading-relaxed text-[var(--color-error)]">
+                    {cameraError || '카메라를 사용할 수 없습니다.'} 사진 업로드 또는 자연어 입력으로 계속 진행할 수 있어요.
                   </div>
                 )}
-              </div>
+              </>
             ) : (
               <form onSubmit={handleNaturalSubmit} className="grid gap-3.5 bg-[var(--color-bg-overlay)] border border-[var(--color-border-default)] p-5 rounded-2xl shadow-[var(--shadow-glass)]">
                 <label className="grid gap-1.5 text-[0.76rem] font-extrabold text-[var(--color-content-muted)]">
@@ -494,23 +523,44 @@ export function LensTab() {
                     variants={candidateCardVariants}
                     layout="position"
                     exit="exit"
-                    drag="x"
-                    dragConstraints={{ left: -96, right: 0 }}
-                    dragElastic={{ left: 0.14, right: 0 }}
-                    onDragEnd={(_event, info) => {
-                      if (info.offset.x < -76 || info.velocity.x < -500) {
-                        handleRemoveCandidate(item.id)
-                      }
-                    }}
-                    className="relative grid gap-3 overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-3.5 shadow-[var(--shadow-glass)]"
+                    className="relative overflow-hidden rounded-xl"
                   >
-                    <div className="pointer-events-none absolute inset-y-0 right-0 grid w-16 place-items-center bg-[var(--color-surface-danger-soft)] text-[var(--color-error)] opacity-70">
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex w-24 items-center justify-center gap-1.5 bg-[var(--color-surface-danger-soft)] text-[var(--color-error)]">
                       <Icon.Trash size={16} />
+                      <span className="text-[0.68rem] font-black">제외</span>
                     </div>
-                    <div className="relative z-10 flex items-center justify-between gap-4">
+                    <motion.div
+                      drag={isEditing ? false : 'x'}
+                      dragConstraints={{ left: -104, right: 0 }}
+                      dragDirectionLock
+                      dragElastic={{ left: 0, right: 0 }}
+                      dragMomentum={false}
+                      dragPropagation={false}
+                      animate={{ x: 0 }}
+                      onDragEnd={(_event, info) => {
+                        const gesture = {
+                          offsetX: info.offset.x,
+                          velocityX: info.velocity.x,
+                        }
+
+                        if (shouldRemoveCandidateBySwipe(gesture)) {
+                          handleRemoveCandidate(item.id)
+                          return
+                        }
+
+                        if (shouldSuppressCandidateClickAfterSwipe(gesture)) {
+                          suppressNextCandidateClick(item.id)
+                        }
+                      }}
+                      className={cn(
+                        'relative z-10 grid gap-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-3.5 shadow-[var(--shadow-glass)] touch-pan-y',
+                        isEditing ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
+                      )}
+                    >
+                    <div className="flex items-center justify-between gap-4">
                       <button
                         type="button"
-                        onClick={() => handleToggleCandidate(item.id)}
+                        onClick={() => handleCandidateSummaryClick(item.id)}
                         className="grid min-w-0 flex-1 gap-1 border-0 bg-transparent p-0 text-left cursor-pointer"
                         aria-expanded={isExpanded}
                       >
@@ -530,6 +580,7 @@ export function LensTab() {
                         <button
                           type="button"
                           onClick={() => handleStartEdit(item)}
+                          onPointerDown={(event) => event.stopPropagation()}
                           className="h-8 px-3 flex items-center justify-center rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.72rem] font-bold text-[var(--color-content-default)] hover:border-[var(--color-border-brand)] transition-colors cursor-pointer"
                         >
                           수정
@@ -537,6 +588,7 @@ export function LensTab() {
                         <button
                           type="button"
                           onClick={() => handleRemoveCandidate(item.id)}
+                          onPointerDown={(event) => event.stopPropagation()}
                           className="h-8 px-3 flex items-center justify-center rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.72rem] font-bold text-[var(--color-content-default)] hover:border-red-300 hover:text-red-500 transition-colors cursor-pointer"
                         >
                           제외
@@ -590,7 +642,7 @@ export function LensTab() {
                         <div className="grid gap-1">
                           <span className="text-[0.7rem] font-bold text-[var(--color-content-muted)]">보관 위치</span>
                           <div className="grid grid-cols-3 gap-1.5">
-                            {['냉장', '냉동', '실온'].map((loc) => (
+                            {storageLocations.map((loc) => (
                               <button
                                 type="button"
                                 key={loc}
@@ -645,6 +697,7 @@ export function LensTab() {
                         </motion.div>
                       )}
                     </AnimatePresence>
+                    </motion.div>
                   </motion.article>
                 )
               })}
