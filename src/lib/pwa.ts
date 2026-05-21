@@ -255,9 +255,14 @@ function isBeforeInstallPromptEvent(event: Event): event is BeforeInstallPromptE
   return (
     'prompt' in event &&
     typeof event.prompt === 'function' &&
-    typeof userChoice === 'object' &&
-    userChoice !== null &&
-    'then' in userChoice &&
-    typeof userChoice.then === 'function'
+    userChoice !== undefined &&
+    isPromiseLike(userChoice)
   )
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('then' in value)) return false
+
+  return typeof value.then === 'function'
 }

@@ -4,6 +4,12 @@ import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+const isTruthyEnv = (value?: string) =>
+  value?.toLowerCase() === "true" ||
+  value?.toLowerCase() === "1" ||
+  value?.toLowerCase() === "yes" ||
+  value?.toLowerCase() === "on";
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -65,6 +71,6 @@ export default defineConfig({
     babel({ presets: [reactCompilerPreset()] }),
   ],
   server: {
-    host: process.env.VITE_DEV_SERVER_HOST === "true" ? true : undefined,
+    host: isTruthyEnv(process.env.VITE_DEV_SERVER_HOST) ? true : undefined,
   },
 });

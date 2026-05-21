@@ -173,6 +173,8 @@ export function LensTab() {
     setEditingCandidateId(null)
   }
 
+  const previewImageUrl = uploadedImageUrl ? getTrustedBlobUrl(uploadedImageUrl) : null
+
   return (
     <div className="grid gap-5">
       <section className="relative overflow-hidden grid gap-1 pt-3 pb-1">
@@ -224,9 +226,9 @@ export function LensTab() {
                     muted
                     className="absolute inset-0 w-full h-full object-cover"
                   />
-                ) : uploadedImageUrl ? (
+                ) : previewImageUrl ? (
                   <img
-                    src={uploadedImageUrl}
+                    src={previewImageUrl}
                     alt="Uploaded preview"
                     className="absolute inset-0 w-full h-full object-cover"
                   />
@@ -548,4 +550,17 @@ export function LensTab() {
       </AnimatePresence>
     </div>
   )
+}
+
+const getTrustedBlobUrl = (value: string) => {
+  try {
+    const parsed = new URL(value)
+
+    if (parsed.protocol !== 'blob:') return null
+    if (typeof window !== 'undefined' && parsed.origin !== window.location.origin) return null
+
+    return parsed.toString()
+  } catch {
+    return null
+  }
 }
