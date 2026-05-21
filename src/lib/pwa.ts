@@ -249,10 +249,15 @@ function getIsIOSDevice() {
 }
 
 function isBeforeInstallPromptEvent(event: Event): event is BeforeInstallPromptEvent {
+  const userChoice =
+    'userChoice' in event ? (event as { userChoice?: unknown }).userChoice : undefined
+
   return (
     'prompt' in event &&
     typeof event.prompt === 'function' &&
-    'userChoice' in event &&
-    event.userChoice instanceof Promise
+    typeof userChoice === 'object' &&
+    userChoice !== null &&
+    'then' in userChoice &&
+    typeof userChoice.then === 'function'
   )
 }

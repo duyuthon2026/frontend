@@ -17,7 +17,7 @@ const createItemId = (scope: string) =>
 
 const reduceQuantityLabel = (quantity: string) => {
   const trimmed = quantity.trim()
-  const fractionalCount = trimmed.match(/^\d+\s*\/\s*\d+\s*(개|팩|송이|장|알)$/)
+  const fractionalCount = trimmed.match(/^\d+\s*\/\s*\d+\s*(개|팩|송이|장|알|모)$/)
   if (fractionalCount) return null
 
   const grams = trimmed.match(/^(\d+)\s*g$/i)
@@ -27,13 +27,13 @@ const reduceQuantityLabel = (quantity: string) => {
     return remaining >= 50 ? `${remaining}g` : null
   }
 
-  const count = trimmed.match(/^(\d+)\s*(개|팩|송이|장|알)$/)
+  const count = trimmed.match(/^(\d+)\s*(개|팩|송이|장|알|모)$/)
   if (count) {
     const remaining = Number(count[1]) - 1
     return remaining > 0 ? `${remaining}${count[2]}` : null
   }
 
-  return null
+  return trimmed || null
 }
 
 const getRelativeDateString = (daysOffset: number): string => {

@@ -528,6 +528,7 @@ export function InventoryTab() {
                         className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-4 font-normal text-[var(--color-content-default)] transition-colors focus:border-[var(--color-primary)] focus:outline-none"
                         value={formExpiresAt}
                         onChange={(e) => setFormExpiresAt(e.target.value)}
+                        required
                       />
                     </label>
                   </div>

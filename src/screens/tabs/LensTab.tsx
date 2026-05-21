@@ -161,11 +161,14 @@ export function LensTab() {
 
   const handleSaveEdit = () => {
     if (!editingCandidateId) return
+    const currentCandidate = candidates.find((candidate) => candidate.id === editingCandidateId)
+    if (!currentCandidate) return
+
     updateCandidate(editingCandidateId, {
       name: editName,
       quantity: editQuantity,
       location: editLocation,
-      expiresAt: editExpiresAt,
+      expiresAt: editExpiresAt || currentCandidate.expiresAt,
     })
     setEditingCandidateId(null)
   }
@@ -422,6 +425,7 @@ export function LensTab() {
                               value={editExpiresAt}
                               onChange={(e) => setEditExpiresAt(e.target.value)}
                               className="min-h-9 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 text-[0.82rem] text-[var(--color-content-default)] focus:outline-none focus:border-[var(--color-primary)]"
+                              required
                             />
                           </div>
                         </div>

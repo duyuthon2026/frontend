@@ -102,7 +102,7 @@ export function NotificationSetupCard() {
 
   return (
     <Panel
-      className="notification-panel"
+      className="gap-4"
       eyebrow="Push"
       title="잔반/보관 알림"
       description={
@@ -112,14 +112,14 @@ export function NotificationSetupCard() {
         </>
       }
     >
-      <div className="status-grid" aria-label="플랫폼 상태">
+      <div className="grid grid-cols-2 gap-2.5" aria-label="플랫폼 상태">
         <StatusPill label="SW" status={serviceWorkerStatus} />
         <StatusPill label="Push" status={notificationStatus} />
       </div>
-      <div className="action-stack">
+      <div className="grid gap-2.5 sm:grid-cols-2">
         <button
           type="button"
-          className="primary-action"
+          className="flex min-h-11 items-center justify-center rounded-xl border-0 bg-[var(--color-primary)] px-4 text-[0.84rem] font-extrabold text-[var(--color-on-primary)] shadow-[var(--shadow-glass)] transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={notificationStatus === 'checking'}
           onClick={handleEnablePush}
         >
@@ -127,7 +127,7 @@ export function NotificationSetupCard() {
         </button>
         <button
           type="button"
-          className="secondary-action"
+          className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-4 text-[0.82rem] font-bold text-[var(--color-content-default)] transition-all hover:border-[var(--color-border-brand)] disabled:cursor-not-allowed disabled:opacity-60"
           disabled={isTestingNotification || !canSendTestNotification}
           onClick={handleTestNotification}
         >
@@ -135,7 +135,7 @@ export function NotificationSetupCard() {
         </button>
       </div>
       {!vapidConfigured && (
-        <p className="setup-note">
+        <p className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 py-2 text-[0.76rem] text-[var(--color-content-muted)]">
           서버 푸시는 <code>VITE_VAPID_PUBLIC_KEY</code> 설정 뒤 구독 생성
         </p>
       )}
