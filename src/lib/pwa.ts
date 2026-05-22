@@ -20,7 +20,6 @@ type ServiceWorkerRegistrationResult =
       supported: true
     }
   | {
-      ready: Promise<never>
       supported: false
     }
 
@@ -45,7 +44,6 @@ const installPromptSubscribers = new Set<() => void>()
 export function registerAppServiceWorker(): ServiceWorkerRegistrationResult {
   if (!('serviceWorker' in navigator)) {
     return {
-      ready: Promise.reject(new Error('Service workers are not supported.')),
       supported: false,
     }
   }
@@ -58,9 +56,26 @@ export function registerAppServiceWorker(): ServiceWorkerRegistrationResult {
         registration?.update().catch(() => undefined)
       },
       onRegisterError: (error) => {
-        console.error('Service worker registration failed:', error)
+        if (import.meta.env.DEV) {
+          console.error('Service worker registration failed:', error)
+        }
       },
     })
+  }
+
+  serviceWorkerReady ??= navigator.serviceWorker.ready
+
+  return {
+    ready: serviceWorkerReady,
+    supported: true,
+  }
+}
+
+export function getAppServiceWorkerReadiness(): ServiceWorkerRegistrationResult {
+  if (!('serviceWorker' in navigator)) {
+    return {
+      supported: false,
+    }
   }
 
   serviceWorkerReady ??= navigator.serviceWorker.ready

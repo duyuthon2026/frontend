@@ -1,11 +1,32 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Icon } from '../../components/ui/Icons'
+import { SwipeableBottomSheet } from '../../components/ui/SwipeableBottomSheet'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
 import { cn } from '../../lib/cn'
 import { calculateDaysLeft, type RecipeCard } from '../../domain/prototype'
 
 type FilterMode = 'recommend' | 'saved'
+
+const conditionFilters = ['15분 이하 요리', '불 없이 간편하게', '아이용 순한 맛', '임박 식재료 최우선']
+
+const foldVariants = {
+  closed: {
+    clipPath: 'inset(0% 0% 100% 0% round 16px)',
+    height: 0,
+    opacity: 0,
+  },
+  open: {
+    clipPath: 'inset(0% 0% 0% 0% round 16px)',
+    height: 'auto',
+    opacity: 1,
+  },
+}
+
+const chipVariants = {
+  closed: { opacity: 0, scale: 0.96, y: -4 },
+  open: { opacity: 1, scale: 1, y: 0 },
+}
 
 export function RecipesTab() {
   const items = usePrototypeStore((state) => state.items)
@@ -165,18 +186,22 @@ export function RecipesTab() {
       <AnimatePresence>
         {showConditions && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
+            initial="closed"
+            animate="open"
+            exit="closed"
+            variants={foldVariants}
+            transition={{ type: 'spring', stiffness: 260, damping: 28 }}
             className="overflow-hidden"
           >
             <div className="grid grid-cols-2 gap-2 p-3 bg-[var(--color-bg-overlay)] border border-[var(--color-border-default)] rounded-xl shadow-[var(--shadow-glass)] mb-1">
-              {['15분 이하 요리', '불 없이 간편하게', '아이용 순한 맛', '임박 식재료 최우선'].map((cond) => {
+              {conditionFilters.map((cond, index) => {
                 const isActive = activeConditions.includes(cond)
                 return (
-                  <button
+                  <motion.button
                     type="button"
                     key={cond}
+                    variants={chipVariants}
+                    transition={{ type: 'spring', stiffness: 300, damping: 24, delay: index * 0.03 }}
                     onClick={() => toggleCondition(cond)}
                     aria-pressed={isActive}
                     className={cn(
@@ -187,7 +212,7 @@ export function RecipesTab() {
                     )}
                   >
                     {cond}
-                  </button>
+                  </motion.button>
                 )
               })}
             </div>
@@ -270,7 +295,16 @@ export function RecipesTab() {
               <article
                 key={recipe.id}
                 onClick={() => handleOpenDetail(recipe)}
-                className="relative flex cursor-pointer flex-col justify-between overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-4 shadow-[var(--shadow-glass)] transition-all duration-300 hover:translate-y-[-1px] hover:border-[var(--color-border-brand)]"
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    handleOpenDetail(recipe)
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                className="relative flex cursor-pointer flex-col justify-between overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-4 shadow-[var(--shadow-glass)] transition-all duration-300 hover:translate-y-[-1px] hover:border-[var(--color-border-brand)] focus:outline-none focus:ring-2 focus:ring-[var(--color-focus)] focus:ring-offset-2 focus:ring-offset-[var(--color-bg-app)]"
               >
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
@@ -337,22 +371,10 @@ export function RecipesTab() {
       <AnimatePresence>
         {selectedRecipeId && selectedRecipe && (
           <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={handleCloseSheet}
-              className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 240 }}
-              className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-[520px] rounded-t-3xl border-t border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-6 pb-9 shadow-[0_-8px_32px_rgba(0,0,0,0.15)] backdrop-blur-md"
+            <SwipeableBottomSheet
+              ariaLabel={`${selectedRecipe.name} 레시피 상세`}
+              onClose={handleCloseSheet}
             >
-              <div className="mx-auto mb-5 h-1 w-11 rounded-full bg-[var(--color-border-default)]" />
-
               {!isCompleted ? (
                 <div className="grid gap-5">
                   <div className="flex items-start justify-between">
@@ -447,7 +469,7 @@ export function RecipesTab() {
                   </button>
                 </div>
               )}
-            </motion.div>
+            </SwipeableBottomSheet>
           </>
         )}
       </AnimatePresence>

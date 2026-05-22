@@ -1,19 +1,28 @@
-import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useCallback, useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
 import { Icon } from '../../components/ui/Icons'
+import { QuantityInput } from '../../components/ui/QuantityInput'
+import { SwipeableBottomSheet } from '../../components/ui/SwipeableBottomSheet'
 import { cn } from '../../lib/cn'
+import {
+  formatQuantityLabel,
+  getDefaultQuantityUnit,
+  parseQuantityLabel,
+} from '../../lib/quantity'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
-import { calculateDaysLeft, calculateStatus, type InventoryItem } from '../../domain/prototype'
+import {
+  calculateDaysLeft,
+  calculateStatus,
+  storageLocations,
+  type InventoryItem,
+  type StorageLocation,
+} from '../../domain/prototype'
+import { getRelativeDateString } from '../../lib/date'
 
 type FilterType = 'all' | '냉장' | '냉동' | '실온' | '임박'
-type StorageLocation = '냉장' | '냉동' | '실온'
 type FormSubmitEvent = { preventDefault: () => void }
 
-const storageLocations: StorageLocation[] = ['냉장', '냉동', '실온']
 const filterTypes: FilterType[] = ['all', '냉장', '냉동', '실온', '임박']
-
-const isStorageLocation = (location: string): location is StorageLocation =>
-  storageLocations.some((candidate) => candidate === location)
 
 export function InventoryTab() {
   const items = usePrototypeStore((state) => state.items)
@@ -32,33 +41,47 @@ export function InventoryTab() {
   const [isDeleting, setIsDeleting] = useState(false)
 
   const [formName, setFormName] = useState('')
-  const [formQuantity, setFormQuantity] = useState('')
+  const [formQuantityAmount, setFormQuantityAmount] = useState('')
+  const [formQuantityUnit, setFormQuantityUnit] = useState('개')
   const [formLocation, setFormLocation] = useState<StorageLocation>('냉장')
   const [formExpiresAt, setFormExpiresAt] = useState('')
 
   const selectedItem = items.find((i) => i.id === selectedItemId)
 
-  const getRelativeDateString = (daysOffset: number): string => {
-    const d = new Date()
-    const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate() + daysOffset)
-    const yyyy = localDate.getFullYear()
-    const mm = String(localDate.getMonth() + 1).padStart(2, '0')
-    const dd = String(localDate.getDate()).padStart(2, '0')
-    return `${yyyy}-${mm}-${dd}`
-  }
+  const handleCloseDetail = useCallback(() => {
+    setSelectedItemId(null)
+    setIsEditing(false)
+    setIsDeleting(false)
+  }, [])
+
+  const handleCloseAdd = useCallback(() => {
+    setIsAddOpen(false)
+  }, [])
 
   const handleOpenDetail = (item: InventoryItem) => {
+    setIsAddOpen(false)
     setSelectedItemId(item.id)
     setIsEditing(false)
     setIsDeleting(false)
   }
 
   const handleOpenAdd = () => {
+    setSelectedItemId(null)
+    setIsEditing(false)
+    setIsDeleting(false)
     setFormName('')
-    setFormQuantity('')
+    setFormQuantityAmount('')
+    setFormQuantityUnit('개')
     setFormLocation('냉장')
     setFormExpiresAt(getRelativeDateString(3))
     setIsAddOpen(true)
+  }
+
+  const handleFormNameChange = (name: string) => {
+    setFormName(name)
+    if (isAddOpen && !selectedItem) {
+      setFormQuantityUnit(getDefaultQuantityUnit(name, '개'))
+    }
   }
 
   const handleAddSubmit = (e: FormSubmitEvent) => {
@@ -66,7 +89,7 @@ export function InventoryTab() {
     if (!formName) return
     addItem({
       name: formName,
-      quantity: formQuantity || '1개',
+      quantity: formatQuantityLabel(formQuantityAmount, formQuantityUnit),
       location: formLocation,
       expiresAt: formExpiresAt || getRelativeDateString(3),
     })
@@ -75,9 +98,14 @@ export function InventoryTab() {
 
   const handleStartEdit = () => {
     if (!selectedItem) return
+    const parsedQuantity = parseQuantityLabel(
+      selectedItem.quantity,
+      getDefaultQuantityUnit(selectedItem.name, '개'),
+    )
     setFormName(selectedItem.name)
-    setFormQuantity(selectedItem.quantity)
-    setFormLocation(isStorageLocation(selectedItem.location) ? selectedItem.location : '냉장')
+    setFormQuantityAmount(parsedQuantity.amount)
+    setFormQuantityUnit(parsedQuantity.unit)
+    setFormLocation(selectedItem.location)
     setFormExpiresAt(selectedItem.expiresAt)
     setIsEditing(true)
   }
@@ -87,7 +115,7 @@ export function InventoryTab() {
     if (!selectedItem || !formName) return
     updateItem(selectedItem.id, {
       name: formName,
-      quantity: formQuantity,
+      quantity: formatQuantityLabel(formQuantityAmount, formQuantityUnit),
       location: formLocation,
       expiresAt: formExpiresAt || selectedItem.expiresAt,
     })
@@ -158,7 +186,7 @@ export function InventoryTab() {
               className="absolute right-3 flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-bg-sunken)] text-[var(--color-content-muted)] hover:text-[var(--color-content-default)] transition-colors border-0 cursor-pointer"
               aria-label="검색어 지우기"
             >
-              <span className="material-symbols-rounded text-sm" aria-hidden="true">close</span>
+              <Icon.Close size={16} />
             </button>
           )}
         </div>
@@ -204,8 +232,17 @@ export function InventoryTab() {
               <article
                 key={item.id}
                 onClick={() => handleOpenDetail(item)}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    handleOpenDetail(item)
+                  }
+                }}
+                role="button"
+                tabIndex={0}
                 className={cn(
-                  'flex items-center justify-between gap-4 rounded-xl border p-3.5 transition-all duration-300 hover:translate-y-[-1px] cursor-pointer shadow-[var(--shadow-glass)]',
+                  'flex items-center justify-between gap-4 rounded-xl border p-3.5 transition-all duration-300 hover:translate-y-[-1px] cursor-pointer shadow-[var(--shadow-glass)] focus:outline-none focus:ring-2 focus:ring-[var(--color-focus)] focus:ring-offset-2 focus:ring-offset-[var(--color-bg-app)]',
                   isSafe
                     ? 'border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] hover:border-[var(--color-border-brand)]'
                     : isSoon
@@ -284,22 +321,10 @@ export function InventoryTab() {
       <AnimatePresence>
         {selectedItemId && selectedItem && (
           <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSelectedItemId(null)}
-              className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 240 }}
-              className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-[520px] rounded-t-3xl border-t border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-6 pb-9 shadow-[0_-8px_32px_rgba(0,0,0,0.15)] backdrop-blur-md"
+            <SwipeableBottomSheet
+              ariaLabel={`${selectedItem.name} 식재료 세부 정보`}
+              onClose={handleCloseDetail}
             >
-              <div className="mx-auto mb-5 h-1 w-11 rounded-full bg-[var(--color-border-default)]" />
-
               {!isEditing ? (
                 <div className="grid gap-5">
                   <div className="flex items-start justify-between">
@@ -410,16 +435,13 @@ export function InventoryTab() {
                       />
                     </label>
 
-                    <div className="grid grid-cols-2 gap-3.5">
-                      <label className="grid gap-1.5 text-[0.76rem] font-extrabold text-[var(--color-content-muted)]">
-                        수량
-                        <input
-                          className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[var(--color-content-default)] px-4 font-normal focus:outline-none focus:border-[var(--color-primary)] transition-colors"
-                          value={formQuantity}
-                          onChange={(e) => setFormQuantity(e.target.value)}
-                          placeholder="예: 1모, 2개"
-                        />
-                      </label>
+                    <div className="grid grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)] gap-3.5">
+                      <QuantityInput
+                        amount={formQuantityAmount}
+                        label="수량"
+                        onAmountChange={setFormQuantityAmount}
+                        unit={formQuantityUnit}
+                      />
                       <label className="grid gap-1.5 text-[0.76rem] font-extrabold text-[var(--color-content-muted)]">
                         소비기한
                         <input
@@ -431,6 +453,10 @@ export function InventoryTab() {
                         />
                       </label>
                     </div>
+
+                    <p className="m-0 rounded-lg bg-[var(--color-bg-base)] px-3 py-2 text-[0.7rem] font-semibold text-[var(--color-content-muted)]">
+                      단위는 기존 식재료 기준으로 고정됩니다. 숫자만 빠르게 수정하세요.
+                    </p>
 
                     <div className="grid gap-1.5 text-[0.76rem] font-extrabold text-[var(--color-content-muted)]">
                       보관 위치
@@ -463,28 +489,16 @@ export function InventoryTab() {
                   </button>
                 </form>
               )}
-            </motion.div>
+            </SwipeableBottomSheet>
           </>
         )}
 
         {isAddOpen && (
           <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsAddOpen(false)}
-              className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 28, stiffness: 240 }}
-              className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-[520px] rounded-t-3xl border-t border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-6 pb-9 shadow-[0_-8px_32px_rgba(0,0,0,0.15)] backdrop-blur-md"
+            <SwipeableBottomSheet
+              ariaLabel="새로운 식재료 직접 등록"
+              onClose={handleCloseAdd}
             >
-              <div className="mx-auto mb-5 h-1 w-11 rounded-full bg-[var(--color-border-default)]" />
-
               <form onSubmit={handleAddSubmit} className="grid gap-4.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[0.74rem] font-black uppercase tracking-wider text-[var(--color-secondary)] dark:text-[var(--color-tertiary)]">
@@ -505,22 +519,19 @@ export function InventoryTab() {
                     <input
                       className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-4 font-normal text-[var(--color-content-default)] transition-colors focus:border-[var(--color-primary)] focus:outline-none"
                       value={formName}
-                      onChange={(e) => setFormName(e.target.value)}
+                      onChange={(e) => handleFormNameChange(e.target.value)}
                       placeholder="예: 토마토, 연어"
                       required
                     />
                   </label>
 
-                  <div className="grid grid-cols-2 gap-3.5">
-                    <label className="grid gap-1.5 text-[0.76rem] font-extrabold text-[var(--color-content-muted)]">
-                      수량
-                      <input
-                        className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-4 font-normal text-[var(--color-content-default)] transition-colors focus:border-[var(--color-primary)] focus:outline-none"
-                        value={formQuantity}
-                        onChange={(e) => setFormQuantity(e.target.value)}
-                        placeholder="예: 12알, 1모"
-                      />
-                    </label>
+                  <div className="grid grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)] gap-3.5">
+                    <QuantityInput
+                      amount={formQuantityAmount}
+                      label="수량"
+                      onAmountChange={setFormQuantityAmount}
+                      unit={formQuantityUnit}
+                    />
                     <label className="grid gap-1.5 text-[0.76rem] font-extrabold text-[var(--color-content-muted)]">
                       소비기한
                       <input
@@ -532,6 +543,10 @@ export function InventoryTab() {
                       />
                     </label>
                   </div>
+
+                  <p className="m-0 rounded-lg bg-[var(--color-bg-base)] px-3 py-2 text-[0.7rem] font-semibold text-[var(--color-content-muted)]">
+                    단위는 식재료명에 맞춰 자동 고정됩니다. 사용자는 숫자만 입력합니다.
+                  </p>
 
                   <div className="grid gap-1.5 text-[0.76rem] font-extrabold text-[var(--color-content-muted)]">
                     보관 위치
@@ -563,7 +578,7 @@ export function InventoryTab() {
                   보관함에 추가
                 </button>
               </form>
-            </motion.div>
+            </SwipeableBottomSheet>
           </>
         )}
       </AnimatePresence>

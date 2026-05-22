@@ -1,12 +1,68 @@
 import { useEffect, useState, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import { Icon } from '../../components/ui/Icons'
+import { QuantityInput } from '../../components/ui/QuantityInput'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
 import { useCamera } from '../../hooks/useCamera'
-import { calculateDaysLeft } from '../../domain/prototype'
+import { calculateDaysLeft, storageLocations, type StorageLocation } from '../../domain/prototype'
 import { cn } from '../../lib/cn'
+import {
+  formatQuantityLabel,
+  getDefaultQuantityUnit,
+  parseQuantityLabel,
+} from '../../lib/quantity'
+import { parseLensNaturalText } from '../../lib/lensParser'
+import {
+  shouldRemoveCandidateBySwipe,
+  shouldSuppressCandidateClickAfterSwipe,
+} from '../../lib/swipe'
 
 type FormSubmitEvent = { preventDefault: () => void }
+type LensCandidate = ReturnType<typeof usePrototypeStore.getState>['lensCandidates'][number]
+
+const scanGridCells = Array.from({ length: 9 }, (_, index) => index)
+
+const cameraGuideItems = ['영수증 글자는 중앙에', '재료는 겹치지 않게', '어두우면 파일 업로드']
+
+const candidateListVariants: Variants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      delayChildren: 0.04,
+      staggerChildren: 0.055,
+    },
+  },
+}
+
+const candidateCardVariants: Variants = {
+  hidden: { opacity: 0, scale: 0.98, y: 14 },
+  visible: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    transition: { type: 'spring' as const, damping: 26, stiffness: 260 },
+  },
+  exit: {
+    opacity: 0,
+    scale: 0.96,
+    x: -64,
+    transition: { duration: 0.18 },
+  },
+}
+
+const foldVariants: Variants = {
+  closed: {
+    clipPath: 'inset(0% 0% 100% 0% round 14px)',
+    height: 0,
+    opacity: 0,
+  },
+  open: {
+    clipPath: 'inset(0% 0% 0% 0% round 14px)',
+    height: 'auto',
+    opacity: 1,
+  },
+}
 
 export function LensTab() {
   const setActiveTab = usePrototypeStore((state) => state.setActiveTab)
@@ -24,15 +80,26 @@ export function LensTab() {
   const [naturalText, setNaturalText] = useState('')
   const [isNaturalMode, setIsNaturalMode] = useState(false)
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null)
+  const [expandedCandidateIds, setExpandedCandidateIds] = useState<string[]>([])
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const suppressedCandidateClickRef = useRef<string | null>(null)
+  const suppressedCandidateClickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const { startCamera, stopCamera, videoRef, isActive: isCameraActive } = useCamera()
+  const {
+    error: cameraError,
+    startCamera,
+    status: cameraStatus,
+    stopCamera,
+    videoRef,
+    isActive: isCameraActive,
+  } = useCamera()
 
   const [editingCandidateId, setEditingCandidateId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
-  const [editQuantity, setEditQuantity] = useState('')
-  const [editLocation, setEditLocation] = useState('냉장')
+  const [editQuantityAmount, setEditQuantityAmount] = useState('')
+  const [editQuantityUnit, setEditQuantityUnit] = useState('개')
+  const [editLocation, setEditLocation] = useState<StorageLocation>('냉장')
   const [editExpiresAt, setEditExpiresAt] = useState('')
 
   const confidenceScore = candidates.length > 0
@@ -85,6 +152,14 @@ export function LensTab() {
     }
   }, [uploadedImageUrl])
 
+  useEffect(() => {
+    return () => {
+      if (suppressedCandidateClickTimeoutRef.current) {
+        clearTimeout(suppressedCandidateClickTimeoutRef.current)
+      }
+    }
+  }, [])
+
   const handleShutterClick = () => {
     stopCamera()
     setProgress(0)
@@ -109,38 +184,19 @@ export function LensTab() {
     e.preventDefault()
     if (!naturalText.trim()) return
 
-    const text = naturalText.trim()
-    let parsedName = text
-    let parsedQty = '1개'
-    let parsedDays = 3
+    const parsedCandidate = parseLensNaturalText(naturalText)
+    if (!parsedCandidate) return
 
-    if (text.includes('두부')) {
-      parsedName = '두부'
-      parsedQty = '1모'
-      parsedDays = 3
-    } else if (text.includes('애호박')) {
-      parsedName = '애호박'
-      parsedQty = '1/2개'
-      parsedDays = 2
-    }
-
-    const d = new Date()
-    const localDate = new Date(d.getFullYear(), d.getMonth(), d.getDate() + parsedDays)
-    const yyyy = localDate.getFullYear()
-    const mm = String(localDate.getMonth() + 1).padStart(2, '0')
-    const dd = String(localDate.getDate()).padStart(2, '0')
-    const expiresAt = `${yyyy}-${mm}-${dd}`
+    const candidateId = `c_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
 
     setCandidates([
       {
-        id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-        name: parsedName,
-        quantity: parsedQty,
-        location: '냉장',
-        expiresAt,
+        id: candidateId,
+        ...parsedCandidate,
       },
       ...candidates,
     ])
+    setExpandedCandidateIds((ids) => [candidateId, ...ids.filter((id) => id !== candidateId)])
     setProgress(0)
     setStep('analyzing')
   }
@@ -151,12 +207,15 @@ export function LensTab() {
     setStep('complete')
   }
 
-  const handleStartEdit = (item: typeof candidates[0]) => {
+  const handleStartEdit = (item: LensCandidate) => {
+    const parsedQuantity = parseQuantityLabel(item.quantity, getDefaultQuantityUnit(item.name, '개'))
     setEditingCandidateId(item.id)
     setEditName(item.name)
-    setEditQuantity(item.quantity)
+    setEditQuantityAmount(parsedQuantity.amount)
+    setEditQuantityUnit(parsedQuantity.unit)
     setEditLocation(item.location)
     setEditExpiresAt(item.expiresAt)
+    setExpandedCandidateIds((ids) => [item.id, ...ids.filter((id) => id !== item.id)])
   }
 
   const handleSaveEdit = () => {
@@ -166,11 +225,46 @@ export function LensTab() {
 
     updateCandidate(editingCandidateId, {
       name: editName,
-      quantity: editQuantity,
+      quantity: formatQuantityLabel(editQuantityAmount, editQuantityUnit),
       location: editLocation,
       expiresAt: editExpiresAt || currentCandidate.expiresAt,
     })
     setEditingCandidateId(null)
+  }
+
+  const handleToggleCandidate = (id: string) => {
+    setExpandedCandidateIds((ids) =>
+      ids.includes(id) ? ids.filter((candidateId) => candidateId !== id) : [id, ...ids],
+    )
+  }
+
+  const handleCandidateSummaryClick = (id: string) => {
+    if (suppressedCandidateClickRef.current === id) {
+      suppressedCandidateClickRef.current = null
+      return
+    }
+
+    handleToggleCandidate(id)
+  }
+
+  const suppressNextCandidateClick = (id: string) => {
+    if (suppressedCandidateClickTimeoutRef.current) {
+      clearTimeout(suppressedCandidateClickTimeoutRef.current)
+    }
+
+    suppressedCandidateClickRef.current = id
+    suppressedCandidateClickTimeoutRef.current = setTimeout(() => {
+      suppressedCandidateClickRef.current = null
+      suppressedCandidateClickTimeoutRef.current = null
+    }, 350)
+  }
+
+  const handleRemoveCandidate = (id: string) => {
+    removeCandidate(id)
+    setExpandedCandidateIds((ids) => ids.filter((candidateId) => candidateId !== id))
+    if (editingCandidateId === id) {
+      setEditingCandidateId(null)
+    }
   }
 
   const previewImageUrl = uploadedImageUrl ? getTrustedBlobUrl(uploadedImageUrl) : null
@@ -214,76 +308,88 @@ export function LensTab() {
             className="grid gap-4.5"
           >
             {!isNaturalMode ? (
-              <div
-                className="relative overflow-hidden aspect-[4/3] rounded-2xl bg-[var(--color-camera-bg)] border border-[var(--color-camera-border)] shadow-[var(--shadow-premium)] flex flex-col items-center justify-center text-[var(--color-camera-content)]"
-                aria-label="카메라 미리보기"
-              >
-                {isCameraActive ? (
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                ) : previewImageUrl ? (
-                  <img
-                    src={previewImageUrl}
-                    alt="Uploaded preview"
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                ) : null}
+              <>
+                <div
+                  className="relative overflow-hidden aspect-[4/3] rounded-2xl bg-[var(--color-camera-bg)] border border-[var(--color-camera-border)] shadow-[var(--shadow-premium)] flex flex-col items-center justify-center text-[var(--color-camera-content)]"
+                  aria-label="카메라 미리보기"
+                >
+                  {isCameraActive ? (
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : previewImageUrl ? (
+                    <img
+                      src={previewImageUrl}
+                      alt="Uploaded preview"
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  ) : null}
 
-                <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none opacity-20">
-                  {[...Array(9)].map((_, i) => (
-                    <div key={i} className="border border-[var(--color-camera-content)]/40" />
-                  ))}
-                </div>
+                  <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none opacity-20">
+                    {scanGridCells.map((i) => (
+                      <div key={i} className="border border-[var(--color-camera-content)]/40" />
+                    ))}
+                  </div>
 
-                <div className="absolute h-36 w-36 rounded-2xl border border-dashed border-[var(--color-primary)]/60 flex items-center justify-center pointer-events-none">
-                  <div className="h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" />
-                </div>
+                  <div className="absolute h-36 w-36 rounded-2xl border border-dashed border-[var(--color-primary)]/60 flex items-center justify-center pointer-events-none">
+                    <div className="h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" />
+                  </div>
 
-                <div className="absolute left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[var(--color-primary)] to-transparent scanner-laser pointer-events-none" />
+                  <div className="absolute left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[var(--color-primary)] to-transparent scanner-laser pointer-events-none" />
 
-                <div className="flex flex-col items-center gap-1.5 z-10 px-6 text-center bg-[var(--color-camera-bg)]/40 p-4 rounded-xl backdrop-blur-sm max-w-[85%]">
-                  <Icon.Camera size={40} className="text-[var(--color-primary)] opacity-90 animate-pulse" />
-                  <span className="text-[0.82rem] font-extrabold text-[var(--color-camera-muted)] mt-1">
-                    {isCameraActive ? '실시간 카메라 작동 중' : '카메라 촬영 시뮬레이터'}
-                  </span>
-                  <span className="text-[0.7rem] font-medium text-[var(--color-camera-subtle)] leading-relaxed">
-                    {isCameraActive
-                      ? '화면 중앙에 영수증이나 식재료를 맞추고 촬영 버튼을 누르세요.'
-                      : '실제 카메라를 켜거나, 사진 파일을 업로드하여 식재료를 스캔할 수 있습니다.'}
-                  </span>
-                </div>
+                  <div className="flex flex-col items-center gap-1.5 z-10 px-6 text-center bg-[var(--color-camera-bg)]/40 p-4 rounded-xl backdrop-blur-sm max-w-[85%]">
+                    <Icon.Camera size={40} className="text-[var(--color-primary)] opacity-90 animate-pulse" />
+                    <span className="text-[0.82rem] font-extrabold text-[var(--color-camera-muted)] mt-1">
+                      {isCameraActive ? '실시간 카메라 작동 중' : '카메라 촬영 시뮬레이터'}
+                    </span>
+                    <span className="text-[0.7rem] font-medium text-[var(--color-camera-subtle)] leading-relaxed">
+                      {isCameraActive
+                        ? '화면 중앙에 영수증이나 식재료를 맞추고 촬영 버튼을 누르세요.'
+                        : '실제 카메라를 켜거나, 사진 파일을 업로드하여 식재료를 스캔할 수 있습니다.'}
+                    </span>
+                  </div>
 
-                {isCameraActive ? (
-                  <button
-                    type="button"
-                    onClick={handleShutterClick}
-                    className="absolute bottom-6 left-1/2 -translate-x-1/2 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-camera-control-bg)] text-[var(--color-camera-control-content)] border-4 border-[var(--color-camera-border)]/40 shadow-lg active:scale-90 transition-transform cursor-pointer"
-                    aria-label="촬영 버튼"
-                  />
-                ) : (
-                  <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-3">
-                    <button
-                      type="button"
-                      onClick={startCamera}
-                      className="px-4 py-2 rounded-xl bg-[var(--color-primary)] text-[var(--color-on-primary)] font-bold text-xs border-0 cursor-pointer shadow-md"
-                    >
-                      카메라 켜기
-                    </button>
+                  {isCameraActive ? (
                     <button
                       type="button"
                       onClick={handleShutterClick}
-                      className="px-4 py-2 rounded-xl bg-[var(--color-camera-control-bg)] text-[var(--color-camera-control-content)] font-bold text-xs border-0 cursor-pointer shadow-md"
-                    >
-                      시뮬레이터 촬영
-                    </button>
+                      className="absolute bottom-6 left-1/2 -translate-x-1/2 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-camera-control-bg)] text-[var(--color-camera-control-content)] border-4 border-[var(--color-camera-border)]/40 shadow-lg active:scale-90 transition-transform cursor-pointer"
+                      aria-label="촬영 버튼"
+                    />
+                  ) : (
+                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-3">
+                      <button
+                        type="button"
+                        onClick={() => void startCamera()}
+                        disabled={cameraStatus === 'starting'}
+                        className="px-4 py-2 rounded-xl bg-[var(--color-primary)] text-[var(--color-on-primary)] font-bold text-xs border-0 cursor-pointer shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {cameraStatus === 'starting' ? '여는 중' : '카메라 켜기'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleShutterClick}
+                        className="px-4 py-2 rounded-xl bg-[var(--color-camera-control-bg)] text-[var(--color-camera-control-content)] font-bold text-xs border-0 cursor-pointer shadow-md"
+                      >
+                        시뮬레이터 촬영
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {(cameraStatus === 'blocked' || cameraStatus === 'error' || cameraStatus === 'unsupported') && (
+                  <div className="grid gap-1.5 rounded-xl border border-[var(--color-error)]/30 bg-[var(--color-surface-danger-soft)]/30 p-3 text-[0.74rem] font-semibold leading-relaxed text-[var(--color-error)]">
+                    <span>{cameraError || '카메라를 사용할 수 없습니다.'}</span>
+                    <span>
+                      사진 업로드 또는 자연어 입력으로 계속 진행할 수 있어요. 배포 환경에서는 HTTPS와 Permissions-Policy: camera=(self)를 확인하세요.
+                    </span>
                   </div>
                 )}
-              </div>
+              </>
             ) : (
               <form onSubmit={handleNaturalSubmit} className="grid gap-3.5 bg-[var(--color-bg-overlay)] border border-[var(--color-border-default)] p-5 rounded-2xl shadow-[var(--shadow-glass)]">
                 <label className="grid gap-1.5 text-[0.76rem] font-extrabold text-[var(--color-content-muted)]">
@@ -305,6 +411,19 @@ export function LensTab() {
                   분석 및 등록
                 </button>
               </form>
+            )}
+
+            {!isNaturalMode && (
+              <div className="grid grid-cols-3 gap-2">
+                {cameraGuideItems.map((item) => (
+                  <div
+                    key={item}
+                    className="rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] px-2.5 py-2 text-center text-[0.68rem] font-black text-[var(--color-content-muted)] shadow-[var(--shadow-glass)]"
+                  >
+                    {item}
+                  </div>
+                ))}
+              </div>
             )}
 
             <div className="flex gap-2.5">
@@ -389,18 +508,110 @@ export function LensTab() {
               </span>
             </div>
 
-            <div className="grid gap-2">
+            <motion.div
+              variants={candidateListVariants}
+              initial="hidden"
+              animate="visible"
+              className="grid gap-2"
+            >
+              <AnimatePresence initial={false}>
               {candidates.map((item) => {
                 const isEditing = editingCandidateId === item.id
+                const isExpanded = expandedCandidateIds.includes(item.id) || isEditing
                 const daysLeft = calculateDaysLeft(item.expiresAt)
 
                 return (
-                  <article
+                  <motion.article
                     key={item.id}
-                    className="grid gap-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-3.5 shadow-[var(--shadow-glass)]"
+                    variants={candidateCardVariants}
+                    layout="position"
+                    exit="exit"
+                    className="relative overflow-hidden rounded-xl"
                   >
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex w-24 items-center justify-center gap-1.5 bg-[var(--color-surface-danger-soft)] text-[var(--color-error)]">
+                      <Icon.Trash size={16} />
+                      <span className="text-[0.68rem] font-black">제외</span>
+                    </div>
+                    <motion.div
+                      drag={isEditing ? false : 'x'}
+                      dragConstraints={{ left: -104, right: 0 }}
+                      dragDirectionLock
+                      dragElastic={{ left: 0, right: 0 }}
+                      dragMomentum={false}
+                      dragPropagation={false}
+                      animate={{ x: 0 }}
+                      onDragEnd={(_event, info) => {
+                        const gesture = {
+                          offsetX: info.offset.x,
+                          velocityX: info.velocity.x,
+                        }
+
+                        if (shouldRemoveCandidateBySwipe(gesture)) {
+                          handleRemoveCandidate(item.id)
+                          return
+                        }
+
+                        if (shouldSuppressCandidateClickAfterSwipe(gesture)) {
+                          suppressNextCandidateClick(item.id)
+                        }
+                      }}
+                      className={cn(
+                        'relative z-10 grid gap-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-3.5 shadow-[var(--shadow-glass)] touch-pan-y',
+                        isEditing ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
+                      )}
+                    >
+                    <div className="flex items-center justify-between gap-4">
+                      <button
+                        type="button"
+                        onClick={() => handleCandidateSummaryClick(item.id)}
+                        className="grid min-w-0 flex-1 gap-1 border-0 bg-transparent p-0 text-left cursor-pointer"
+                        aria-expanded={isExpanded}
+                      >
+                        <div className="flex items-center gap-2">
+                          <strong className="truncate text-[0.92rem] font-extrabold text-[var(--color-content-default)]">
+                            {item.name}
+                          </strong>
+                          <span className="shrink-0 rounded-md border border-[var(--color-border-brand)] bg-[var(--color-surface-brand-soft)] px-1.5 py-0.5 text-[0.64rem] font-black text-[var(--color-content-brand)]">
+                            {item.quantity}
+                          </span>
+                        </div>
+                        <span className="text-[0.72rem] font-bold text-[var(--color-content-muted)]">
+                          {item.location} 보관 · {daysLeft < 0 ? '기한초과' : daysLeft === 0 ? '오늘까지' : `D-${daysLeft}`} · {item.expiresAt}
+                        </span>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(item)}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          className="h-8 px-3 flex items-center justify-center rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.72rem] font-bold text-[var(--color-content-default)] hover:border-[var(--color-border-brand)] transition-colors cursor-pointer"
+                        >
+                          수정
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCandidate(item.id)}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          className="h-8 px-3 flex items-center justify-center rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.72rem] font-bold text-[var(--color-content-default)] hover:border-red-300 hover:text-red-500 transition-colors cursor-pointer"
+                        >
+                          제외
+                        </button>
+                      </div>
+                    </div>
+
+                    <AnimatePresence initial={false}>
+                      {isExpanded && (
+                        <motion.div
+                          key={isEditing ? 'edit' : 'preview'}
+                          initial="closed"
+                          animate="open"
+                          exit="closed"
+                          variants={foldVariants}
+                          transition={{ type: 'spring', stiffness: 280, damping: 28 }}
+                          className="relative z-10 overflow-hidden"
+                        >
                     {isEditing ? (
-                      <div className="grid gap-3">
+                      <div className="grid gap-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)]/70 p-3">
                         <div className="grid gap-1">
                           <span className="text-[0.7rem] font-bold text-[var(--color-content-muted)]">이름</span>
                           <input
@@ -410,16 +621,13 @@ export function LensTab() {
                             className="min-h-9 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 text-[0.82rem] text-[var(--color-content-default)] focus:outline-none focus:border-[var(--color-primary)]"
                           />
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="grid gap-1">
-                            <span className="text-[0.7rem] font-bold text-[var(--color-content-muted)]">수량</span>
-                            <input
-                              type="text"
-                              value={editQuantity}
-                              onChange={(e) => setEditQuantity(e.target.value)}
-                              className="min-h-9 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 text-[0.82rem] text-[var(--color-content-default)] focus:outline-none focus:border-[var(--color-primary)]"
-                            />
-                          </div>
+                        <div className="grid grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)] gap-2">
+                          <QuantityInput
+                            amount={editQuantityAmount}
+                            label="수량"
+                            onAmountChange={setEditQuantityAmount}
+                            unit={editQuantityUnit}
+                          />
                           <div className="grid gap-1">
                             <span className="text-[0.7rem] font-bold text-[var(--color-content-muted)]">소비기한</span>
                             <input
@@ -431,10 +639,13 @@ export function LensTab() {
                             />
                           </div>
                         </div>
+                        <p className="m-0 text-[0.68rem] font-semibold text-[var(--color-content-muted)]">
+                          단위는 자동 인식값으로 고정됩니다. 숫자만 보정하세요.
+                        </p>
                         <div className="grid gap-1">
                           <span className="text-[0.7rem] font-bold text-[var(--color-content-muted)]">보관 위치</span>
                           <div className="grid grid-cols-3 gap-1.5">
-                            {['냉장', '냉동', '실온'].map((loc) => (
+                            {storageLocations.map((loc) => (
                               <button
                                 type="button"
                                 key={loc}
@@ -469,37 +680,32 @@ export function LensTab() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between gap-4">
+                      <div className="grid grid-cols-3 gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)]/70 p-3 text-center">
                         <div className="grid gap-0.5">
-                          <strong className="text-[0.9rem] font-extrabold text-[var(--color-content-default)]">
-                            {item.name}
-                          </strong>
-                          <span className="text-[0.74rem] font-bold text-[var(--color-content-muted)]">
-                            {item.location} 보관 · 예상 기한 {daysLeft < 0 ? '기한초과' : daysLeft === 0 ? '오늘' : `D-${daysLeft}`} ({item.expiresAt})
-                          </span>
+                          <span className="text-[0.62rem] font-black text-[var(--color-content-muted)]">위치</span>
+                          <strong className="text-[0.76rem] text-[var(--color-content-default)]">{item.location}</strong>
                         </div>
-                        <div className="flex gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleStartEdit(item)}
-                            className="h-8 px-3 flex items-center justify-center rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.72rem] font-bold text-[var(--color-content-default)] hover:border-[var(--color-border-brand)] transition-colors cursor-pointer"
-                          >
-                            수정
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeCandidate(item.id)}
-                            className="h-8 px-3 flex items-center justify-center rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.72rem] font-bold text-[var(--color-content-default)] hover:border-red-300 hover:text-red-500 transition-colors cursor-pointer"
-                          >
-                            제외
-                          </button>
+                        <div className="grid gap-0.5">
+                          <span className="text-[0.62rem] font-black text-[var(--color-content-muted)]">수량</span>
+                          <strong className="text-[0.76rem] text-[var(--color-content-default)]">{item.quantity}</strong>
+                        </div>
+                        <div className="grid gap-0.5">
+                          <span className="text-[0.62rem] font-black text-[var(--color-content-muted)]">상태</span>
+                          <strong className="text-[0.76rem] text-[var(--color-content-default)]">
+                            {daysLeft < 0 ? '확인 필요' : daysLeft <= 2 ? '빠른 소진' : '여유'}
+                          </strong>
                         </div>
                       </div>
                     )}
-                  </article>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                    </motion.div>
+                  </motion.article>
                 )
               })}
-            </div>
+              </AnimatePresence>
+            </motion.div>
 
             <div className="grid grid-cols-2 gap-3 mt-1.5">
               <button

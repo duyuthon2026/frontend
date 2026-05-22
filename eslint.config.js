@@ -11,12 +11,22 @@ export default defineConfig([
     files: ['**/*.{ts,tsx}'],
     extends: [
       js.configs.recommended,
-      tseslint.configs.recommended,
-      reactHooks.configs.flat.recommended,
+      tseslint.configs.recommendedTypeChecked,
+      reactHooks.configs.flat['recommended-latest'],
       reactRefresh.configs.vite,
     ],
     languageOptions: {
       globals: globals.browser,
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
+    files: ['vite.config.ts', 'vitest.config.ts'],
+    languageOptions: {
+      globals: globals.node,
     },
   },
   {

@@ -14,6 +14,8 @@ const isTruthyEnv = (value?: string) =>
 export default defineConfig({
   plugins: [
     tailwindcss(),
+    babel({ presets: [reactCompilerPreset()] }),
+    react(),
     VitePWA({
       strategies: "injectManifest",
       srcDir: "src",
@@ -61,14 +63,13 @@ export default defineConfig({
       },
       injectManifest: {
         globPatterns: ["**/*.{js,css,html,svg,png,ico}"],
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
       },
       devOptions: {
         enabled: true,
         type: "module",
       },
     }),
-    react(),
-    babel({ presets: [reactCompilerPreset()] }),
   ],
   server: {
     host: isTruthyEnv(process.env.VITE_DEV_SERVER_HOST) ? true : undefined,

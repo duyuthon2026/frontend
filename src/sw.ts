@@ -2,25 +2,26 @@
 
 import { clientsClaim } from 'workbox-core'
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching'
+import {
+  getNotificationClientPath,
+  normalizePushPayload,
+  type PushPayload,
+} from './lib/pushPayload'
 
-type PushPayload = {
-  body?: string
-  icon?: string
-  tag?: string
-  title?: string
-  url?: string
+type PrecacheManifestEntry = {
+  revision: string | null
+  url: string
 }
 
-const sw = self as unknown as ServiceWorkerGlobalScope & {
-  __WB_MANIFEST: Array<{
-    revision: string | null
-    url: string
-  }>
+declare const self: ServiceWorkerGlobalScope & {
+  __WB_MANIFEST: PrecacheManifestEntry[]
 }
+
+const sw = self
 
 precacheAndRoute(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
-sw.skipWaiting()
+void sw.skipWaiting()
 clientsClaim()
 
 sw.addEventListener('push', (event) => {
@@ -41,10 +42,8 @@ sw.addEventListener('push', (event) => {
 sw.addEventListener('notificationclick', (event) => {
   event.notification.close()
 
-  const targetUrl = new URL(
-    String(event.notification.data?.url || '/'),
-    sw.location.origin,
-  ).href
+  const targetPath = getNotificationClientPath(event.notification.data, sw.location.origin)
+  const targetUrl = new URL(targetPath || '/', sw.location.origin).href
 
   event.waitUntil(openOrFocusClient(targetUrl))
 })
@@ -55,7 +54,7 @@ function parsePushPayload(data: PushMessageData | null): PushPayload {
   }
 
   try {
-    return data.json() as PushPayload
+    return normalizePushPayload(data.json(), sw.location.origin)
   } catch {
     return {
       body: data.text(),
