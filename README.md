@@ -31,6 +31,7 @@ bun run typecheck    # TypeScript project references 전체 타입체크
 bun run lint         # ESLint(type-aware 포함)
 bun run test         # Vitest 단위 테스트
 bun run build        # 타입체크 후 프로덕션 빌드
+bun run qa:production # dist 정적 서빙/SPA fallback/PWA asset smoke test
 bun run preview      # 빌드 결과 미리보기
 ```
 
@@ -39,6 +40,7 @@ bun run preview      # 빌드 결과 미리보기
 `.env.example`을 복사해 `.env`를 만들고 필요한 값만 설정합니다.
 
 - `VITE_VAPID_PUBLIC_KEY`: Web Push VAPID 공개키. 비어 있으면 권한 요청/테스트 알림만 가능하고 서버 푸시 구독 생성은 보류됩니다.
+- `VITE_API_BASE_URL`: API HTTP(S) origin only. 같은 origin에서 `/api/*`를 제공하면 비워두고, API가 별도 origin이면 `https://api.example.com`처럼 path/query/hash 없이 설정합니다.
 - `VITE_DEV_SERVER_HOST`: `1`, `true`, `yes`, `on`이면 Vite 개발 서버가 외부 호스트 바인딩을 허용합니다. 로컬 네트워크 테스트에만 사용하세요.
 
 ## 품질 기준
@@ -50,3 +52,7 @@ bun run lint
 bun run test
 bun run build
 ```
+
+## 운영/백엔드 서빙 준비
+
+백엔드가 `dist/`를 서빙할 때 필요한 SPA fallback, service worker cache header, HTTPS/카메라 권한, PWA smoke test 절차는 `docs/production-ops.md`를 따릅니다. 백엔드 handoff 계약은 `BR_SPEC.md`에 정리되어 있습니다. 배포 전에는 `bun run qa:production`으로 backend-like static serving 시나리오를 검증하세요.

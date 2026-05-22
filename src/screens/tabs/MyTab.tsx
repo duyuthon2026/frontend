@@ -1,5 +1,6 @@
 import { Icon } from '../../components/ui/Icons'
 import { mySettingGroups } from '../../domain/prototype'
+import { CameraReadinessCard } from '../../features/camera/CameraReadinessCard'
 import { NotificationSetupCard } from '../../features/notifications/NotificationSetupCard'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
 import { usePWAInstall } from '../../lib/pwa'
@@ -69,6 +70,8 @@ export function MyTab() {
           )}
         </div>
       )}
+
+      <CameraReadinessCard />
 
       <NotificationSetupCard />
 

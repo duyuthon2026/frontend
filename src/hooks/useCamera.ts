@@ -1,5 +1,12 @@
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  getBrowserCameraPreflight,
+  getCameraErrorMessage,
+  getCameraRuntimeStatus,
+  queryBrowserCameraPermissionState,
+} from '../lib/cameraAccess'
+import { useDeviceStore } from '../stores/useDeviceStore'
 
 const cameraConstraints: MediaStreamConstraints = {
   audio: false,
@@ -14,7 +21,7 @@ export type CameraState = {
   error: string
   isActive: boolean
   startCamera: () => Promise<void>
-  status: 'idle' | 'starting' | 'active' | 'unsupported' | 'error'
+  status: 'idle' | 'starting' | 'active' | 'blocked' | 'unsupported' | 'error'
   stopCamera: () => void
   videoRef: RefObject<HTMLVideoElement | null>
 }
@@ -24,6 +31,7 @@ export function useCamera(): CameraState {
   const requestIdRef = useRef(0)
   const streamRef = useRef<MediaStream | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const setCameraState = useDeviceStore((state) => state.setCameraState)
   const [error, setError] = useState('')
   const [status, setStatus] = useState<CameraState['status']>('idle')
 
@@ -39,22 +47,47 @@ export function useCamera(): CameraState {
     if (isMountedRef.current) {
       setStatus('idle')
     }
-  }, [])
+    setCameraState('idle', '카메라 대기 중. HTTPS 환경에서 권한 요청 가능')
+  }, [setCameraState])
 
   const startCamera = useCallback(async () => {
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
 
-    if (!navigator.mediaDevices?.getUserMedia) {
+    const cameraPreflight = getBrowserCameraPreflight()
+
+    if (!cameraPreflight.canRequest) {
       if (isMountedRef.current) {
-        setError('이 브라우저는 카메라 접근을 지원하지 않습니다.')
-        setStatus('unsupported')
+        setError(cameraPreflight.message)
+        setStatus(cameraPreflight.status)
+        setCameraState(cameraPreflight.status, cameraPreflight.message)
+      }
+      return
+    }
+
+    const permissionState = await queryBrowserCameraPermissionState()
+
+    if (!isMountedRef.current || requestIdRef.current !== requestId) {
+      return
+    }
+
+    if (permissionState === 'denied') {
+      const permissionMessage = getCameraErrorMessage({
+        message: 'denied',
+        name: 'NotAllowedError',
+      })
+
+      if (isMountedRef.current) {
+        setError(permissionMessage)
+        setStatus('blocked')
+        setCameraState('blocked', permissionMessage)
       }
       return
     }
 
     setError('')
     setStatus('starting')
+    setCameraState('checking', '카메라 권한 요청 중')
 
     let stream: MediaStream | null = null
 
@@ -76,24 +109,33 @@ export function useCamera(): CameraState {
 
       if (isMountedRef.current && requestIdRef.current === requestId) {
         setStatus('active')
+        setCameraState('active', '카메라 활성화됨')
       }
     } catch (cameraError) {
       if (stream) {
         stopStream(stream)
+        if (streamRef.current === stream) {
+          streamRef.current = null
+        }
+        if (videoRef.current?.srcObject === stream) {
+          videoRef.current.srcObject = null
+        }
       }
 
       if (isMountedRef.current && requestIdRef.current === requestId) {
-        setError(
-          cameraError instanceof Error
-            ? cameraError.message
-            : '카메라를 시작할 수 없습니다.',
-        )
-        setStatus('error')
+        const cameraMessage = getCameraErrorMessage(cameraError)
+        const cameraStatus = getCameraRuntimeStatus(cameraError)
+
+        setError(cameraMessage)
+        setStatus(cameraStatus)
+        setCameraState(cameraStatus, cameraMessage)
       }
     }
-  }, [])
+  }, [setCameraState])
 
   useEffect(() => {
+    isMountedRef.current = true
+
     return () => {
       isMountedRef.current = false
       stopCamera()

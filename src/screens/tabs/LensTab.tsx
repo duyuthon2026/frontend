@@ -381,9 +381,12 @@ export function LensTab() {
                   )}
                 </div>
 
-                {(cameraStatus === 'error' || cameraStatus === 'unsupported') && (
-                  <div className="rounded-xl border border-[var(--color-error)]/30 bg-[var(--color-surface-danger-soft)]/30 p-3 text-[0.74rem] font-semibold leading-relaxed text-[var(--color-error)]">
-                    {cameraError || '카메라를 사용할 수 없습니다.'} 사진 업로드 또는 자연어 입력으로 계속 진행할 수 있어요.
+                {(cameraStatus === 'blocked' || cameraStatus === 'error' || cameraStatus === 'unsupported') && (
+                  <div className="grid gap-1.5 rounded-xl border border-[var(--color-error)]/30 bg-[var(--color-surface-danger-soft)]/30 p-3 text-[0.74rem] font-semibold leading-relaxed text-[var(--color-error)]">
+                    <span>{cameraError || '카메라를 사용할 수 없습니다.'}</span>
+                    <span>
+                      사진 업로드 또는 자연어 입력으로 계속 진행할 수 있어요. 배포 환경에서는 HTTPS와 Permissions-Policy: camera=(self)를 확인하세요.
+                    </span>
                   </div>
                 )}
               </>
