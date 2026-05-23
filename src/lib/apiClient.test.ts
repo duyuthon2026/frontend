@@ -3,7 +3,7 @@ import { type ApiError, type ApiFetch, apiJson, resolveApiUrl } from './apiClien
 
 describe('api client helpers', () => {
   it('resolves same-origin and external backend API URLs', () => {
-    expect(resolveApiUrl('/api/inventory')).toBe('/api/inventory')
+    expect(resolveApiUrl('/api/inventory', '')).toBe('/api/inventory')
     expect(resolveApiUrl('/api/inventory', 'https://api.janban.example/')).toBe(
       'https://api.janban.example/api/inventory',
     )
@@ -65,7 +65,7 @@ describe('api client helpers', () => {
       new Response('service unavailable', { status: 503 }),
     )
 
-    await expect(apiJson('/api/inventory', { fetchImpl })).rejects.toMatchObject({
+    await expect(apiJson('/api/inventory', { baseUrl: '', fetchImpl })).rejects.toMatchObject({
       body: 'service unavailable',
       status: 503,
       url: '/api/inventory',
