@@ -1,12 +1,22 @@
+import { ClerkProvider } from '@clerk/react'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { clerkPublishableKey } from './lib/clerk'
 import { registerAppServiceWorker } from './lib/pwa'
+
+const app = clerkPublishableKey ? (
+  <ClerkProvider publishableKey={clerkPublishableKey} afterSignOutUrl="/">
+    <App />
+  </ClerkProvider>
+) : (
+  <App />
+)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {app}
   </StrictMode>,
 )
 
