@@ -12,6 +12,7 @@ import {
   parseQuantityLabel,
 } from '../../lib/quantity'
 import { parseLensNaturalText } from '../../lib/lensParser'
+import { analyzeLensImage, analyzeLensText, shouldUseBackendApi } from '../../lib/backendApi'
 import {
   shouldRemoveCandidateBySwipe,
   shouldSuppressCandidateClickAfterSwipe,
@@ -81,6 +82,7 @@ export function LensTab() {
   const [isNaturalMode, setIsNaturalMode] = useState(false)
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null)
   const [expandedCandidateIds, setExpandedCandidateIds] = useState<string[]>([])
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const suppressedCandidateClickRef = useRef<string | null>(null)
@@ -166,7 +168,12 @@ export function LensTab() {
     setStep('analyzing')
   }
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const applyAnalyzedCandidates = (nextCandidates: LensCandidate[]) => {
+    setCandidates(nextCandidates)
+    setExpandedCandidateIds(nextCandidates.map((candidate) => candidate.id))
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
       if (uploadedImageUrl) {
@@ -177,12 +184,36 @@ export function LensTab() {
       stopCamera()
       setProgress(0)
       setStep('analyzing')
+      setAnalysisError(null)
+
+      if (shouldUseBackendApi()) {
+        try {
+          const response = await analyzeLensImage(file, { maxCandidates: 3, source: 'upload' })
+          applyAnalyzedCandidates(response.candidates)
+        } catch (error) {
+          setAnalysisError(error instanceof Error ? error.message : '이미지 분석 API 호출 실패')
+        }
+      }
     }
   }
 
-  const handleNaturalSubmit = (e: FormSubmitEvent) => {
+  const handleNaturalSubmit = async (e: FormSubmitEvent) => {
     e.preventDefault()
     if (!naturalText.trim()) return
+
+    setProgress(0)
+    setStep('analyzing')
+    setAnalysisError(null)
+
+    if (shouldUseBackendApi()) {
+      try {
+        const response = await analyzeLensText(naturalText)
+        applyAnalyzedCandidates(response.candidates)
+        return
+      } catch (error) {
+        setAnalysisError(error instanceof Error ? error.message : '자연어 분석 API 호출 실패')
+      }
+    }
 
     const parsedCandidate = parseLensNaturalText(naturalText)
     if (!parsedCandidate) return
@@ -197,8 +228,6 @@ export function LensTab() {
       ...candidates,
     ])
     setExpandedCandidateIds((ids) => [candidateId, ...ids.filter((id) => id !== candidateId)])
-    setProgress(0)
-    setStep('analyzing')
   }
 
   const handleBatchConfirm = () => {
@@ -292,7 +321,7 @@ export function LensTab() {
       <input
         type="file"
         ref={fileInputRef}
-        onChange={handleFileChange}
+        onChange={(event) => void handleFileChange(event)}
         accept="image/*"
         className="hidden"
       />
@@ -391,7 +420,7 @@ export function LensTab() {
                 )}
               </>
             ) : (
-              <form onSubmit={handleNaturalSubmit} className="grid gap-3.5 bg-[var(--color-bg-overlay)] border border-[var(--color-border-default)] p-5 rounded-2xl shadow-[var(--shadow-glass)]">
+              <form onSubmit={(event) => void handleNaturalSubmit(event)} className="grid gap-3.5 bg-[var(--color-bg-overlay)] border border-[var(--color-border-default)] p-5 rounded-2xl shadow-[var(--shadow-glass)]">
                 <label className="grid gap-1.5 text-[0.76rem] font-extrabold text-[var(--color-content-muted)]">
                   한 줄 식재료 자연어 입력
                   <textarea
@@ -488,6 +517,11 @@ export function LensTab() {
             <span className="text-[0.72rem] font-black text-[var(--color-secondary)] dark:text-[var(--color-tertiary)] mt-0.5">
               분석 완료율 {progress}%
             </span>
+            {analysisError && (
+              <p className="m-0 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 py-2 text-[0.72rem] font-bold text-[var(--color-content-muted)]">
+                서버 분석에 실패하여 로컬 후보로 계속 진행합니다: {analysisError}
+              </p>
+            )}
           </motion.div>
         )}
 

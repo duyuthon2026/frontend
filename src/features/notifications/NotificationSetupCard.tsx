@@ -6,6 +6,7 @@ import {
   setupPushNotifications,
   showLocalTestNotification,
 } from '../../lib/pwa'
+import { registerPushSubscription, sendBackendTestPush, shouldUseBackendApi } from '../../lib/backendApi'
 import { useDeviceStore } from '../../stores/useDeviceStore'
 
 export function NotificationSetupCard() {
@@ -71,6 +72,12 @@ export function NotificationSetupCard() {
       }
 
       if (result.status === 'subscribed') {
+        if (shouldUseBackendApi() && result.subscription) {
+          const record = await registerPushSubscription(result.subscription)
+          setNotificationState('ready', record ? `${result.message} 서버 구독 저장 완료` : result.message)
+          return
+        }
+
         setNotificationState('ready', result.message)
         return
       }
@@ -88,8 +95,13 @@ export function NotificationSetupCard() {
     setIsTestingNotification(true)
 
     try {
-      await showLocalTestNotification()
-      setNotificationState('ready', '테스트 알림 발송 완료')
+      if (shouldUseBackendApi()) {
+        await sendBackendTestPush()
+        setNotificationState('ready', '서버 테스트 푸시 발송 완료')
+      } else {
+        await showLocalTestNotification()
+        setNotificationState('ready', '테스트 알림 발송 완료')
+      }
     } catch (error) {
       setNotificationState(
         'error',
