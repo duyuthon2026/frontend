@@ -13,10 +13,33 @@ import {
   isStorageLocation,
   recipeCards as initialRecipes,
 } from '../domain/prototype'
+import {
+  consumeRecipeOnBackend,
+  createInventoryItem,
+  createInventoryItemsBatch,
+  deleteInventoryItem,
+  fetchInventoryItems,
+  fetchInventorySelection,
+  fetchRecipes,
+  saveInventorySelection,
+  saveRecipe,
+  shouldUseBackendApi,
+  updateInventoryItem,
+} from '../lib/backendApi'
 import { getRelativeDateString, isIsoLocalDateString } from '../lib/date'
 
 const createItemId = (scope: string) =>
   `i_${Date.now()}_${scope}_${Math.random().toString(36).slice(2, 11)}`
+
+const syncBackend = (operation: () => Promise<void>) => {
+  if (!shouldUseBackendApi()) return
+
+  void operation().catch((error: unknown) => {
+    if (import.meta.env.DEV) {
+      console.warn('Backend sync failed:', error)
+    }
+  })
+}
 
 export const reduceQuantityLabel = (quantity: string) => {
   const trimmed = quantity.trim()
@@ -188,9 +211,11 @@ type PrototypeState = {
   setActiveLensStep: (step: LensStepId) => void
   setActiveRecipeView: (view: RecipeViewId) => void
   setActiveTab: (tab: AppTabId) => void
+  loadBackendState: () => Promise<void>
 
   items: InventoryItem[]
   recipes: RecipeCard[]
+  recipeConsumeReviewMessage: string | null
   selectedIngredientIds: string[]
 
   lensCandidates: LensCandidate[]
@@ -212,7 +237,7 @@ type PrototypeState = {
 
 export const usePrototypeStore = create<PrototypeState>()(
   persist<PrototypeState, [], [], PersistedPrototypeState>(
-    (set) => ({
+    (set, get) => ({
       activeHomeState: 'default',
       activeInventoryView: 'list',
       activeLensStep: 'camera',
@@ -223,9 +248,31 @@ export const usePrototypeStore = create<PrototypeState>()(
       setActiveLensStep: (activeLensStep) => set({ activeLensStep }),
       setActiveRecipeView: (activeRecipeView) => set({ activeRecipeView }),
       setActiveTab: (activeTab) => set({ activeTab }),
+      loadBackendState: async () => {
+        if (!shouldUseBackendApi()) return
+
+        try {
+          const [items, selectedIngredientIds] = await Promise.all([
+            fetchInventoryItems(),
+            fetchInventorySelection(),
+          ])
+          const recipes = await fetchRecipes(selectedIngredientIds)
+          const itemIds = new Set(items.map((item) => item.id))
+          set({
+            items,
+            recipes,
+            selectedIngredientIds: selectedIngredientIds.filter((id) => itemIds.has(id)),
+          })
+        } catch (error) {
+          if (import.meta.env.DEV) {
+            console.warn('Backend state hydration failed:', error)
+          }
+        }
+      },
 
       items: initialItems,
       recipes: initialRecipes,
+      recipeConsumeReviewMessage: null,
       selectedIngredientIds: [],
 
       lensCandidates: initialCandidates,
@@ -249,41 +296,62 @@ export const usePrototypeStore = create<PrototypeState>()(
         })),
       clearLensCandidates: () => set({ lensCandidates: [] }),
 
-      addItem: (item) =>
-        set((state) => {
-          const newItem: InventoryItem = {
-            ...item,
-            id: createItemId('single'),
-          }
-          return { items: [...state.items, newItem] }
-        }),
-
-      addItemsBatch: (newItems) =>
-        set((state) => {
-          const formattedItems = newItems.map((item, index) => ({
-            ...item,
-            id: createItemId(`batch_${index}`),
+      addItem: (item) => {
+        const tempId = createItemId('single')
+        const newItem: InventoryItem = { ...item, id: tempId }
+        set((state) => ({ items: [...state.items, newItem] }))
+        syncBackend(async () => {
+          const created = await createInventoryItem(item)
+          set((state) => ({
+            items: state.items.map((existing) => existing.id === tempId ? created : existing),
           }))
-          return { items: [...state.items, ...formattedItems] }
-        }),
+        })
+      },
 
-      removeItem: (id) =>
+      addItemsBatch: (newItems) => {
+        const formattedItems = newItems.map((item, index) => ({
+          ...item,
+          id: createItemId(`batch_${index}`),
+        }))
+        const tempIds = new Set(formattedItems.map((item) => item.id))
+        set((state) => ({ items: [...state.items, ...formattedItems] }))
+        syncBackend(async () => {
+          const createdItems = await createInventoryItemsBatch(
+            formattedItems.map(({ id, ...item }) => ({ ...item, clientRequestId: id })),
+          )
+          set((state) => ({
+            items: [...state.items.filter((item) => !tempIds.has(item.id)), ...createdItems],
+          }))
+        })
+      },
+
+      removeItem: (id) => {
         set((state) => {
           const nextItems = state.items.filter((item) => item.id !== id)
-          return {
-            items: nextItems,
-            selectedIngredientIds: state.selectedIngredientIds.filter((sid) => sid !== id),
-          }
-        }),
+          const selectedIngredientIds = state.selectedIngredientIds.filter((sid) => sid !== id)
+          syncBackend(() => saveInventorySelection(selectedIngredientIds).then(() => undefined))
+          return { items: nextItems, selectedIngredientIds }
+        })
+        syncBackend(() => deleteInventoryItem(id))
+      },
 
-      updateItem: (id, updated) =>
+      updateItem: (id, updated) => {
         set((state) => ({
           items: state.items.map((item) =>
             item.id === id ? { ...item, ...updated } : item
           ),
-        })),
+        }))
+        syncBackend(async () => {
+          const nextItem = await updateInventoryItem(id, updated)
+          set((state) => ({
+            items: state.items.map((item) => item.id === id ? nextItem : item),
+          }))
+        })
+      },
 
-      consumeRecipe: (recipeId) =>
+      consumeRecipe: (recipeId) => {
+        const selectedIdsBeforeConsume = get().selectedIngredientIds
+        set({ recipeConsumeReviewMessage: null })
         set((state) => {
           const recipe = state.recipes.find((r) => r.id === recipeId)
           if (!recipe) return {}
@@ -314,24 +382,66 @@ export const usePrototypeStore = create<PrototypeState>()(
             items: updatedItems,
             selectedIngredientIds: nextSelectedIngredientIds,
           }
-        }),
+        })
+        syncBackend(async () => {
+          const result = await consumeRecipeOnBackend(recipeId, selectedIdsBeforeConsume)
+          const removedIds = new Set(result.removedItemIds)
+          const updatedById = new Map(result.updatedItems.map((item) => [item.id, item]))
+          set((state) => {
+            const updatedItems = state.items
+              .filter((item) => !removedIds.has(item.id))
+              .map((item) => updatedById.get(item.id) ?? item)
+            const existingIds = new Set(updatedItems.map((item) => item.id))
+            for (const item of result.updatedItems) {
+              if (!existingIds.has(item.id)) updatedItems.push(item)
+            }
+            return {
+              items: updatedItems,
+              recipeConsumeReviewMessage: result.needsReview?.length
+                ? `재료 차감 검토가 필요한 항목 ${result.needsReview.length}개가 있습니다.`
+                : null,
+              selectedIngredientIds: result.selectedIngredientIds,
+            }
+          })
+        })
+      },
 
-      toggleSaveRecipe: (recipeId) =>
+      toggleSaveRecipe: (recipeId) => {
+        const nextSaved = !get().recipes.find((recipe) => recipe.id === recipeId)?.saved
         set((state) => ({
           recipes: state.recipes.map((recipe) =>
-            recipe.id === recipeId ? { ...recipe, saved: !recipe.saved } : recipe
+            recipe.id === recipeId ? { ...recipe, saved: nextSaved } : recipe
           ),
-        })),
+        }))
+        syncBackend(async () => {
+          const recipe = await saveRecipe(recipeId, nextSaved)
+          set((state) => ({
+            recipes: state.recipes.map((existing) => existing.id === recipeId ? recipe : existing),
+          }))
+        })
+      },
 
-      setSelectedIngredientIds: (selectedIngredientIds) => set({ selectedIngredientIds }),
-      toggleSelectedIngredientId: (id) =>
-        set((state) => {
-          const isSelected = state.selectedIngredientIds.includes(id)
-          const nextIds = isSelected
-            ? state.selectedIngredientIds.filter((sid) => sid !== id)
-            : [...state.selectedIngredientIds, id]
-          return { selectedIngredientIds: nextIds }
-        }),
+      setSelectedIngredientIds: (selectedIngredientIds) => {
+        set({ selectedIngredientIds })
+        syncBackend(async () => {
+          const savedIds = await saveInventorySelection(selectedIngredientIds)
+          const recipes = await fetchRecipes(savedIds)
+          set({ recipes, selectedIngredientIds: savedIds })
+        })
+      },
+      toggleSelectedIngredientId: (id) => {
+        const state = get()
+        const isSelected = state.selectedIngredientIds.includes(id)
+        const nextIds = isSelected
+          ? state.selectedIngredientIds.filter((sid) => sid !== id)
+          : [...state.selectedIngredientIds, id]
+        set({ selectedIngredientIds: nextIds })
+        syncBackend(async () => {
+          const savedIds = await saveInventorySelection(nextIds)
+          const recipes = await fetchRecipes(savedIds)
+          set({ recipes, selectedIngredientIds: savedIds })
+        })
+      },
     }),
     {
       name: 'prototype-store',
