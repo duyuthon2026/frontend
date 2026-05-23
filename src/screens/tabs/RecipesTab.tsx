@@ -32,6 +32,7 @@ export function RecipesTab() {
   const items = usePrototypeStore((state) => state.items)
   const recipes = usePrototypeStore((state) => state.recipes)
   const consumeRecipe = usePrototypeStore((state) => state.consumeRecipe)
+  const recipeConsumeReviewMessage = usePrototypeStore((state) => state.recipeConsumeReviewMessage)
   const toggleSaveRecipe = usePrototypeStore((state) => state.toggleSaveRecipe)
   const selectedIngredientIds = usePrototypeStore((state) => state.selectedIngredientIds)
   const toggleSelectedIngredientId = usePrototypeStore((state) => state.toggleSelectedIngredientId)
@@ -458,6 +459,11 @@ export function RecipesTab() {
                     <p className="m-0 text-[0.78rem] text-[var(--color-content-muted)] leading-relaxed max-w-[90%]">
                       레시피에 필요한 식재료들이 인벤토리 수량에서 자동으로 차감되거나 삭제되었습니다.
                     </p>
+                    {recipeConsumeReviewMessage && (
+                      <p className="m-0 rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-surface-warning-soft)]/30 px-3 py-2 text-[0.74rem] font-bold text-[var(--color-warning)]">
+                        {recipeConsumeReviewMessage}
+                      </p>
+                    )}
                   </div>
 
                   <button
