@@ -2,6 +2,8 @@ import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import { Icon } from '../../components/ui/Icons'
 import { QuantityInput } from '../../components/ui/QuantityInput'
+import { AccountRequiredCard } from '../../features/auth/AuthSession'
+import { useAuthSession } from '../../features/auth/authSessionContext'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
 import { useCamera } from '../../hooks/useCamera'
 import { calculateDaysLeft, storageLocations, type StorageLocation } from '../../domain/prototype'
@@ -20,6 +22,11 @@ import {
 
 type FormSubmitEvent = { preventDefault: () => void }
 type LensCandidate = ReturnType<typeof usePrototypeStore.getState>['lensCandidates'][number]
+type AnalysisProvider = {
+  latencyMs?: number
+  model?: string
+  name: string
+}
 
 const scanGridCells = Array.from({ length: 9 }, (_, index) => index)
 
@@ -76,13 +83,15 @@ export function LensTab() {
   const removeCandidate = usePrototypeStore((state) => state.removeLensCandidate)
   const updateCandidate = usePrototypeStore((state) => state.updateLensCandidate)
   const clearCandidates = usePrototypeStore((state) => state.clearLensCandidates)
+  const { canUseBackendAccount, requiresAccount } = useAuthSession()
 
-  const [progress, setProgress] = useState(0)
+  const [analysisMessage, setAnalysisMessage] = useState('실제 AI 분석 요청 중')
   const [naturalText, setNaturalText] = useState('')
   const [isNaturalMode, setIsNaturalMode] = useState(false)
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null)
   const [expandedCandidateIds, setExpandedCandidateIds] = useState<string[]>([])
   const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const [analysisProvider, setAnalysisProvider] = useState<AnalysisProvider | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const suppressedCandidateClickRef = useRef<string | null>(null)
@@ -104,31 +113,14 @@ export function LensTab() {
   const [editLocation, setEditLocation] = useState<StorageLocation>('냉장')
   const [editExpiresAt, setEditExpiresAt] = useState('')
 
-  const confidenceScore = candidates.length > 0
-    ? Math.min(98, Math.max(80, 85 + (candidates.reduce((acc, c) => acc + c.name.length, 0) % 14)))
-    : 0
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    if (step === 'analyzing') {
-      const interval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(interval)
-            timer = setTimeout(() => {
-              setStep('result')
-            }, 400)
-            return 100
-          }
-          return prev + 5
-        })
-      }, 80)
-      return () => {
-        clearInterval(interval)
-        clearTimeout(timer)
-      }
-    }
-  }, [step, setStep])
+  const confidenceValues = candidates
+    .map((candidate) => candidate.confidence)
+    .filter((confidence): confidence is number => typeof confidence === 'number')
+  const confidenceScore = confidenceValues.length > 0
+    ? Math.round(
+        (confidenceValues.reduce((sum, confidence) => sum + confidence, 0) / confidenceValues.length) * 100,
+      )
+    : null
 
   useEffect(() => {
     if (step === 'complete') {
@@ -162,18 +154,37 @@ export function LensTab() {
     }
   }, [])
 
-  const handleShutterClick = () => {
-    stopCamera()
-    setProgress(0)
+  const beginAnalysis = (message: string) => {
+    if (!canUseBackendAccount) return
+    setAnalysisError(null)
+    setAnalysisProvider(null)
+    setAnalysisMessage(message)
     setStep('analyzing')
   }
 
-  const applyAnalyzedCandidates = (nextCandidates: LensCandidate[]) => {
+  const applyAnalyzedCandidates = (nextCandidates: LensCandidate[], provider?: AnalysisProvider) => {
     setCandidates(nextCandidates)
     setExpandedCandidateIds(nextCandidates.map((candidate) => candidate.id))
+    setAnalysisProvider(provider ?? null)
+    setStep('result')
+  }
+
+  const handleShutterClick = async () => {
+    if (!canUseBackendAccount || !isCameraActive || !videoRef.current) return
+    beginAnalysis('카메라 프레임을 OpenAI Vision으로 분석 중입니다.')
+
+    try {
+      const imageFile = await captureVideoFrame(videoRef.current)
+      stopCamera()
+      const response = await analyzeLensImage(imageFile, { maxCandidates: 5, source: 'camera' })
+      applyAnalyzedCandidates(response.candidates, response.provider)
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : '카메라 이미지 분석 API 호출 실패')
+    }
   }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canUseBackendAccount) return
     const file = e.target.files?.[0]
     if (file) {
       if (uploadedImageUrl) {
@@ -182,14 +193,12 @@ export function LensTab() {
       const url = URL.createObjectURL(file)
       setUploadedImageUrl(url)
       stopCamera()
-      setProgress(0)
-      setStep('analyzing')
-      setAnalysisError(null)
+      beginAnalysis('업로드한 사진을 OpenAI Vision으로 분석 중입니다.')
 
       if (shouldUseBackendApi()) {
         try {
-          const response = await analyzeLensImage(file, { maxCandidates: 3, source: 'upload' })
-          applyAnalyzedCandidates(response.candidates)
+          const response = await analyzeLensImage(file, { maxCandidates: 5, source: 'upload' })
+          applyAnalyzedCandidates(response.candidates, response.provider)
         } catch (error) {
           setAnalysisError(error instanceof Error ? error.message : '이미지 분석 API 호출 실패')
         }
@@ -199,19 +208,19 @@ export function LensTab() {
 
   const handleNaturalSubmit = async (e: FormSubmitEvent) => {
     e.preventDefault()
+    if (!canUseBackendAccount) return
     if (!naturalText.trim()) return
 
-    setProgress(0)
-    setStep('analyzing')
-    setAnalysisError(null)
+    beginAnalysis('입력 문장을 OpenAI로 구조화 분석 중입니다.')
 
     if (shouldUseBackendApi()) {
       try {
         const response = await analyzeLensText(naturalText)
-        applyAnalyzedCandidates(response.candidates)
+        applyAnalyzedCandidates(response.candidates, response.provider)
         return
       } catch (error) {
         setAnalysisError(error instanceof Error ? error.message : '자연어 분석 API 호출 실패')
+        return
       }
     }
 
@@ -228,10 +237,14 @@ export function LensTab() {
       ...candidates,
     ])
     setExpandedCandidateIds((ids) => [candidateId, ...ids.filter((id) => id !== candidateId)])
+    setAnalysisProvider({ name: 'local-dev-parser' })
+    setStep('result')
   }
 
-  const handleBatchConfirm = () => {
-    addItemsBatch(candidates)
+  const handleBatchConfirm = async () => {
+    if (!canUseBackendAccount) return
+    const saved = await addItemsBatch(candidates)
+    if (!saved) return
     clearCandidates()
     setStep('complete')
   }
@@ -318,6 +331,10 @@ export function LensTab() {
         </p>
       </section>
 
+      {requiresAccount && (
+        <AccountRequiredCard actionLabel="AI 렌즈 분석 결과와 등록 후보는 가입 후 서버 보관함에 바로 저장됩니다." />
+      )}
+
       <input
         type="file"
         ref={fileInputRef}
@@ -342,15 +359,17 @@ export function LensTab() {
                   className="relative overflow-hidden aspect-[4/3] rounded-2xl bg-[var(--color-camera-bg)] border border-[var(--color-camera-border)] shadow-[var(--shadow-premium)] flex flex-col items-center justify-center text-[var(--color-camera-content)]"
                   aria-label="카메라 미리보기"
                 >
-                  {isCameraActive ? (
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="absolute inset-0 w-full h-full object-cover"
-                    />
-                  ) : previewImageUrl ? (
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
+                      isCameraActive ? 'opacity-100' : 'opacity-0'
+                    }`}
+                  />
+
+                  {!isCameraActive && previewImageUrl ? (
                     <img
                       src={previewImageUrl}
                       alt="Uploaded preview"
@@ -370,41 +389,38 @@ export function LensTab() {
 
                   <div className="absolute left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[var(--color-primary)] to-transparent scanner-laser pointer-events-none" />
 
-                  <div className="flex flex-col items-center gap-1.5 z-10 px-6 text-center bg-[var(--color-camera-bg)]/40 p-4 rounded-xl backdrop-blur-sm max-w-[85%]">
-                    <Icon.Camera size={40} className="text-[var(--color-primary)] opacity-90 animate-pulse" />
+                  <div className={isCameraActive
+                    ? 'absolute left-3 top-3 z-10 flex items-center gap-2 rounded-full bg-[var(--color-camera-bg)]/60 px-3 py-2 text-left backdrop-blur-sm'
+                    : 'z-10 flex max-w-[85%] flex-col items-center gap-1.5 rounded-xl bg-[var(--color-camera-bg)]/40 p-4 px-6 text-center backdrop-blur-sm'
+                  }>
+                    <Icon.Camera size={isCameraActive ? 18 : 40} className="text-[var(--color-primary)] opacity-90 animate-pulse" />
                     <span className="text-[0.82rem] font-extrabold text-[var(--color-camera-muted)] mt-1">
-                      {isCameraActive ? '실시간 카메라 작동 중' : '카메라 촬영 시뮬레이터'}
+                      {isCameraActive ? '실시간 카메라 작동 중' : '카메라 대기 중'}
                     </span>
-                    <span className="text-[0.7rem] font-medium text-[var(--color-camera-subtle)] leading-relaxed">
-                      {isCameraActive
-                        ? '화면 중앙에 영수증이나 식재료를 맞추고 촬영 버튼을 누르세요.'
-                        : '실제 카메라를 켜거나, 사진 파일을 업로드하여 식재료를 스캔할 수 있습니다.'}
-                    </span>
+                    {!isCameraActive && (
+                      <span className="text-[0.7rem] font-medium text-[var(--color-camera-subtle)] leading-relaxed">
+                        실제 카메라를 켜거나, 사진 파일을 업로드하여 식재료를 스캔할 수 있습니다.
+                      </span>
+                    )}
                   </div>
 
                   {isCameraActive ? (
                     <button
                       type="button"
-                      onClick={handleShutterClick}
-                      className="absolute bottom-6 left-1/2 -translate-x-1/2 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-camera-control-bg)] text-[var(--color-camera-control-content)] border-4 border-[var(--color-camera-border)]/40 shadow-lg active:scale-90 transition-transform cursor-pointer"
+                      onClick={() => void handleShutterClick()}
+                      disabled={!canUseBackendAccount}
+                      className="absolute bottom-6 left-1/2 -translate-x-1/2 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-camera-control-bg)] text-[var(--color-camera-control-content)] border-4 border-[var(--color-camera-border)]/40 shadow-lg active:scale-90 transition-transform cursor-pointer disabled:cursor-not-allowed disabled:opacity-55"
                       aria-label="촬영 버튼"
                     />
                   ) : (
-                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-3">
+                    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex">
                       <button
                         type="button"
                         onClick={() => void startCamera()}
-                        disabled={cameraStatus === 'starting'}
+                        disabled={cameraStatus === 'starting' || !canUseBackendAccount}
                         className="px-4 py-2 rounded-xl bg-[var(--color-primary)] text-[var(--color-on-primary)] font-bold text-xs border-0 cursor-pointer shadow-md disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {cameraStatus === 'starting' ? '여는 중' : '카메라 켜기'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleShutterClick}
-                        className="px-4 py-2 rounded-xl bg-[var(--color-camera-control-bg)] text-[var(--color-camera-control-content)] font-bold text-xs border-0 cursor-pointer shadow-md"
-                      >
-                        시뮬레이터 촬영
                       </button>
                     </div>
                   )}
@@ -432,10 +448,11 @@ export function LensTab() {
                     required
                   />
                 </label>
-                <button
-                  type="submit"
-                  className="min-h-11 flex items-center justify-center gap-1.5 rounded-xl bg-[var(--color-primary)] text-[var(--color-on-primary)] font-extrabold text-[0.84rem] shadow-[var(--shadow-glass)] transition-all cursor-pointer border-0"
-                >
+                  <button
+                    type="submit"
+                    disabled={!canUseBackendAccount}
+                    className="min-h-11 flex items-center justify-center gap-1.5 rounded-xl bg-[var(--color-primary)] text-[var(--color-on-primary)] font-extrabold text-[0.84rem] shadow-[var(--shadow-glass)] transition-all cursor-pointer border-0 disabled:cursor-not-allowed disabled:opacity-55"
+                  >
                   <Icon.Sparkles size={14} />
                   분석 및 등록
                 </button>
@@ -476,7 +493,8 @@ export function LensTab() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex-1 min-h-[44px] flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] text-[var(--color-content-default)] text-[0.78rem] font-bold hover:border-[var(--color-border-brand)] transition-all cursor-pointer"
+                disabled={!canUseBackendAccount}
+                className="flex-1 min-h-[44px] flex items-center justify-center gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] text-[var(--color-content-default)] text-[0.78rem] font-bold hover:border-[var(--color-border-brand)] transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-55"
               >
                 <Icon.Inventory size={14} />
                 사진 파일 업로드
@@ -501,26 +519,27 @@ export function LensTab() {
 
             <div className="grid gap-1">
               <strong className="text-[1.05rem] font-extrabold text-[var(--color-content-default)]">
-                영상이미지 속 식재료 스캔 중
+                실제 AI 분석 요청 중
               </strong>
               <p className="m-0 text-[0.78rem] text-[var(--color-content-muted)]">
-                OCR 이미지 해독 기술과 식생활 패턴 사전을 조합하고 있습니다.
+                {analysisMessage}
               </p>
             </div>
 
-            <div className="w-full h-2 overflow-hidden rounded-full bg-[var(--color-bg-base)] border border-[var(--color-border-default)] mt-2">
-              <div
-                className="h-full bg-[var(--color-primary)] transition-all duration-100 rounded-full"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <span className="text-[0.72rem] font-black text-[var(--color-secondary)] dark:text-[var(--color-tertiary)] mt-0.5">
-              분석 완료율 {progress}%
+            <span className="text-[0.72rem] font-black uppercase text-[var(--color-secondary)] dark:text-[var(--color-tertiary)]">
+              서버 응답 대기
             </span>
             {analysisError && (
-              <p className="m-0 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 py-2 text-[0.72rem] font-bold text-[var(--color-content-muted)]">
-                서버 분석에 실패하여 로컬 후보로 계속 진행합니다: {analysisError}
-              </p>
+              <div className="grid gap-2 rounded-lg border border-[var(--color-error)]/30 bg-[var(--color-surface-danger-soft)]/30 px-3 py-2 text-[0.72rem] font-bold text-[var(--color-error)]">
+                <p className="m-0">실제 AI 분석 실패: {analysisError}</p>
+                <button
+                  type="button"
+                  onClick={() => setStep('camera')}
+                  className="min-h-9 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 text-[var(--color-content-default)]"
+                >
+                  촬영 화면으로 돌아가기
+                </button>
+              </div>
             )}
           </motion.div>
         )}
@@ -537,9 +556,19 @@ export function LensTab() {
               <span className="text-[0.76rem] font-bold text-[var(--color-content-muted)]">
                 AI가 감지한 식재료 목록
               </span>
-              <span className="text-[0.66rem] font-black text-[var(--color-secondary)] dark:text-[var(--color-tertiary)] uppercase px-1.5 py-0.5 rounded bg-[var(--color-surface-brand-soft)] border border-[var(--color-border-brand)]">
-                신뢰도 {confidenceScore}%
-              </span>
+              <div className="flex min-w-0 flex-wrap justify-end gap-1.5">
+                {confidenceScore !== null && (
+                  <span className="rounded border border-[var(--color-border-brand)] bg-[var(--color-surface-brand-soft)] px-1.5 py-0.5 text-[0.66rem] font-black uppercase text-[var(--color-secondary)] dark:text-[var(--color-tertiary)]">
+                    평균 신뢰도 {confidenceScore}%
+                  </span>
+                )}
+                {analysisProvider && (
+                  <span className="max-w-[11rem] truncate rounded border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] px-1.5 py-0.5 text-[0.66rem] font-black uppercase text-[var(--color-content-muted)]">
+                    {analysisProvider.model ?? analysisProvider.name}
+                    {analysisProvider.latencyMs ? ` · ${analysisProvider.latencyMs}ms` : ''}
+                  </span>
+                )}
+              </div>
             </div>
 
             <motion.div
@@ -751,8 +780,8 @@ export function LensTab() {
               </button>
               <button
                 type="button"
-                onClick={handleBatchConfirm}
-                disabled={candidates.length === 0}
+                onClick={() => void handleBatchConfirm()}
+                disabled={candidates.length === 0 || !canUseBackendAccount}
                 className="min-h-11 rounded-xl border-0 bg-[var(--color-primary)] text-[0.84rem] font-extrabold text-[var(--color-on-primary)] shadow-[var(--shadow-glass)] transition-all active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
               >
                 식재료 일괄 등록
@@ -803,4 +832,33 @@ const getTrustedBlobUrl = (value: string) => {
   } catch {
     return null
   }
+}
+
+async function captureVideoFrame(video: HTMLVideoElement): Promise<File> {
+  const width = video.videoWidth || Math.round(video.getBoundingClientRect().width)
+  const height = video.videoHeight || Math.round(video.getBoundingClientRect().height)
+
+  if (!width || !height) {
+    throw new Error('카메라 영상 프레임이 아직 준비되지 않았습니다. 잠시 후 다시 촬영하세요.')
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    throw new Error('카메라 프레임을 이미지로 변환할 수 없습니다.')
+  }
+
+  context.drawImage(video, 0, 0, width, height)
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, 'image/jpeg', 0.9)
+  })
+
+  if (!blob) {
+    throw new Error('카메라 프레임 이미지 생성에 실패했습니다.')
+  }
+
+  return new File([blob], `lens-camera-${Date.now()}.jpg`, { type: 'image/jpeg' })
 }

@@ -3,6 +3,8 @@ import { AnimatePresence } from 'framer-motion'
 import { Icon } from '../../components/ui/Icons'
 import { QuantityInput } from '../../components/ui/QuantityInput'
 import { SwipeableBottomSheet } from '../../components/ui/SwipeableBottomSheet'
+import { AccountRequiredCard } from '../../features/auth/AuthSession'
+import { useAuthSession } from '../../features/auth/authSessionContext'
 import { cn } from '../../lib/cn'
 import {
   formatQuantityLabel,
@@ -31,6 +33,7 @@ export function InventoryTab() {
   const updateItem = usePrototypeStore((state) => state.updateItem)
   const selectedIngredientIds = usePrototypeStore((state) => state.selectedIngredientIds)
   const toggleSelectedIngredientId = usePrototypeStore((state) => state.toggleSelectedIngredientId)
+  const { canUseBackendAccount, requiresAccount } = useAuthSession()
 
   const [activeFilter, setActiveFilter] = useState<FilterType>('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -66,6 +69,7 @@ export function InventoryTab() {
   }
 
   const handleOpenAdd = () => {
+    if (!canUseBackendAccount) return
     setSelectedItemId(null)
     setIsEditing(false)
     setIsDeleting(false)
@@ -86,8 +90,9 @@ export function InventoryTab() {
 
   const handleAddSubmit = (e: FormSubmitEvent) => {
     e.preventDefault()
+    if (!canUseBackendAccount) return
     if (!formName) return
-    addItem({
+    void addItem({
       name: formName,
       quantity: formatQuantityLabel(formQuantityAmount, formQuantityUnit),
       location: formLocation,
@@ -97,6 +102,7 @@ export function InventoryTab() {
   }
 
   const handleStartEdit = () => {
+    if (!canUseBackendAccount) return
     if (!selectedItem) return
     const parsedQuantity = parseQuantityLabel(
       selectedItem.quantity,
@@ -112,8 +118,9 @@ export function InventoryTab() {
 
   const handleEditSubmit = (e: FormSubmitEvent) => {
     e.preventDefault()
+    if (!canUseBackendAccount) return
     if (!selectedItem || !formName) return
-    updateItem(selectedItem.id, {
+    void updateItem(selectedItem.id, {
       name: formName,
       quantity: formatQuantityLabel(formQuantityAmount, formQuantityUnit),
       location: formLocation,
@@ -123,8 +130,9 @@ export function InventoryTab() {
   }
 
   const handleDeleteConfirm = () => {
+    if (!canUseBackendAccount) return
     if (!selectedItemId) return
-    removeItem(selectedItemId)
+    void removeItem(selectedItemId)
     setSelectedItemId(null)
     setIsDeleting(false)
   }
@@ -160,12 +168,17 @@ export function InventoryTab() {
         <button
           type="button"
           onClick={handleOpenAdd}
-          className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--color-primary)] hover:bg-[var(--color-secondary)] text-[var(--color-on-primary)] hover:text-[var(--color-on-secondary)] font-extrabold shadow-[var(--shadow-glass)] transition-all duration-300 border-0 cursor-pointer"
+          disabled={!canUseBackendAccount}
+          className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--color-primary)] hover:bg-[var(--color-secondary)] text-[var(--color-on-primary)] hover:text-[var(--color-on-secondary)] font-extrabold shadow-[var(--shadow-glass)] transition-all duration-300 border-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-55"
           aria-label="재료 추가"
         >
           <Icon.Plus size={20} />
         </button>
       </section>
+
+      {requiresAccount && (
+        <AccountRequiredCard actionLabel="식재료 추가, 수정, 삭제와 레시피 매칭 선택은 이제 서버 냉장고에 저장됩니다." />
+      )}
 
       <div className="grid gap-3">
         <div className="relative flex items-center">
@@ -255,10 +268,11 @@ export function InventoryTab() {
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation()
-                      toggleSelectedIngredientId(item.id)
+                      if (canUseBackendAccount) void toggleSelectedIngredientId(item.id)
                     }}
+                    disabled={!canUseBackendAccount}
                     className={cn(
-                      'flex h-6 w-6 items-center justify-center rounded-md border transition-all cursor-pointer',
+                      'flex h-6 w-6 items-center justify-center rounded-md border transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-50',
                       isSelected
                         ? 'bg-[var(--color-primary)] border-[var(--color-primary)] text-[var(--color-on-primary)]'
                         : 'border-[var(--color-border-default)] bg-transparent text-transparent'
@@ -370,14 +384,16 @@ export function InventoryTab() {
                       <button
                         type="button"
                         onClick={handleStartEdit}
-                        className="min-h-11 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.84rem] font-bold text-[var(--color-content-default)] hover:border-[var(--color-border-brand)] transition-colors cursor-pointer"
+                        disabled={!canUseBackendAccount}
+                        className="min-h-11 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.84rem] font-bold text-[var(--color-content-default)] hover:border-[var(--color-border-brand)] transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-55"
                       >
                         정보 수정
                       </button>
                       <button
                         type="button"
                         onClick={() => setIsDeleting(true)}
-                        className="min-h-11 rounded-xl bg-[var(--color-error)]/10 text-[var(--color-error)] hover:bg-[var(--color-error)]/20 text-[0.84rem] font-bold transition-colors border-0 cursor-pointer"
+                        disabled={!canUseBackendAccount}
+                        className="min-h-11 rounded-xl bg-[var(--color-error)]/10 text-[var(--color-error)] hover:bg-[var(--color-error)]/20 text-[0.84rem] font-bold transition-colors border-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-55"
                       >
                         폐기 / 삭제
                       </button>

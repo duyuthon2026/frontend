@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
-const backendPort = 3000
-const frontendPort = 5173
+const backendPort = Number(process.env.E2E_BACKEND_PORT ?? 3000)
+const frontendPort = Number(process.env.E2E_FRONTEND_PORT ?? 5173)
 
 export default defineConfig({
   expect: {
@@ -17,14 +17,14 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `env NODE_ENV=development ALLOW_ANONYMOUS_HOUSEHOLD=true CORS_ALLOWED_ORIGINS=http://127.0.0.1:${frontendPort},http://localhost:${frontendPort} bun run dev`,
+      command: `env PORT=${backendPort} NODE_ENV=development ALLOW_ANONYMOUS_HOUSEHOLD=true CORS_ALLOWED_ORIGINS=http://127.0.0.1:${frontendPort},http://localhost:${frontendPort} bun run dev`,
       cwd: '../DuYuTho_n',
       reuseExistingServer: true,
       timeout: 120_000,
       url: `http://127.0.0.1:${backendPort}/api/health`,
     },
     {
-      command: `env VITE_API_BASE_URL=http://127.0.0.1:${backendPort} bun run dev -- --host 127.0.0.1`,
+      command: `env VITE_API_BASE_URL=http://127.0.0.1:${backendPort} VITE_CLERK_PUBLISHABLE_KEY= VITE_ALLOW_ANONYMOUS_BACKEND=true bun run dev -- --host 127.0.0.1 --port ${frontendPort} --strictPort`,
       reuseExistingServer: true,
       timeout: 120_000,
       url: `http://127.0.0.1:${frontendPort}`,

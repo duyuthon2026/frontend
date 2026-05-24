@@ -34,6 +34,25 @@ export type PushSetupResult =
       status: 'ready'
     }
 
+export type PushPreflightInput = {
+  hasNotification: boolean
+  hasPushManager: boolean
+  isIOS: boolean
+  isSecureContext: boolean
+  isStandalone: boolean
+}
+
+export type PushPreflightResult =
+  | {
+      canRequest: true
+      message: string
+    }
+  | {
+      canRequest: false
+      message: string
+      status: 'unsupported'
+    }
+
 let didRegisterServiceWorker = false
 let serviceWorkerReady: Promise<ServiceWorkerRegistration> | null = null
 let cachedInstallPromptEvent: BeforeInstallPromptEvent | null = null
@@ -89,16 +108,11 @@ export function getAppServiceWorkerReadiness(): ServiceWorkerRegistrationResult 
 export async function setupPushNotifications(
   vapidPublicKey = '',
 ): Promise<PushSetupResult> {
-  if (!('Notification' in window) || !('PushManager' in window)) {
-    return {
-      message: 'This browser does not support web push notifications.',
-      status: 'unsupported',
-    }
-  }
+  const pushPreflight = getBrowserPushPreflight()
 
-  if (!window.isSecureContext) {
+  if (!pushPreflight.canRequest) {
     return {
-      message: '푸시 알림은 HTTPS 또는 localhost에서 동작합니다.',
+      message: pushPreflight.message,
       status: 'unsupported',
     }
   }
@@ -114,32 +128,92 @@ export async function setupPushNotifications(
 
   const registration = await getServiceWorkerRegistration()
   const existingSubscription = await registration.pushManager.getSubscription()
+  const trimmedVapidPublicKey = vapidPublicKey.trim()
+  const applicationServerKey = trimmedVapidPublicKey
+    ? urlBase64ToUint8Array(trimmedVapidPublicKey)
+    : null
 
   if (existingSubscription) {
-    return {
-      message: '푸시 구독이 이미 준비되었습니다.',
-      status: 'subscribed',
-      subscription: existingSubscription.toJSON(),
+    if (
+      applicationServerKey &&
+      !subscriptionUsesApplicationServerKey(existingSubscription, applicationServerKey)
+    ) {
+      await existingSubscription.unsubscribe()
+    } else {
+      return {
+        message: '푸시 구독이 이미 준비되었습니다.',
+        status: 'subscribed',
+        subscription: existingSubscription.toJSON(),
+      }
     }
   }
 
-  if (!vapidPublicKey.trim()) {
+  if (!applicationServerKey) {
     return {
-      message: '알림 권한 준비 완료. VITE_VAPID_PUBLIC_KEY 설정 뒤 푸시 구독 생성.',
+      message: '알림 권한 준비 완료. 서버 VAPID 공개키 설정 뒤 푸시 구독 생성.',
       status: 'missing-vapid-key',
     }
   }
 
   const subscription = await registration.pushManager.subscribe({
-    applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+    applicationServerKey,
     userVisibleOnly: true,
   })
 
   return {
-    message: '푸시 구독 준비 완료.',
+    message: existingSubscription ? '푸시 구독 갱신 완료.' : '푸시 구독 준비 완료.',
     status: 'subscribed',
     subscription: subscription.toJSON(),
   }
+}
+
+export function getPushPreflight({
+  hasNotification,
+  hasPushManager,
+  isIOS,
+  isSecureContext,
+  isStandalone,
+}: PushPreflightInput): PushPreflightResult {
+  if (!isSecureContext) {
+    return {
+      canRequest: false,
+      message: '푸시 알림은 HTTPS 또는 localhost에서 동작합니다.',
+      status: 'unsupported',
+    }
+  }
+
+  if (isIOS && !isStandalone) {
+    return {
+      canRequest: false,
+      message: 'iOS Safari 탭에서는 푸시 구독을 만들 수 없습니다. 공유 버튼에서 홈 화면에 추가한 뒤 홈 화면 아이콘으로 실행해 알림을 켜세요.',
+      status: 'unsupported',
+    }
+  }
+
+  if (!hasNotification || !hasPushManager) {
+    return {
+      canRequest: false,
+      message: isIOS
+        ? 'iOS 16.4 이상 홈 화면 앱에서만 Web Push를 지원합니다. iOS 버전과 홈 화면 실행 상태를 확인하세요.'
+        : '이 브라우저는 웹 푸시 알림을 지원하지 않습니다.',
+      status: 'unsupported',
+    }
+  }
+
+  return {
+    canRequest: true,
+    message: '푸시 알림 권한을 요청할 수 있습니다.',
+  }
+}
+
+export function getBrowserPushPreflight(): PushPreflightResult {
+  return getPushPreflight({
+    hasNotification: typeof window !== 'undefined' && 'Notification' in window,
+    hasPushManager: typeof window !== 'undefined' && 'PushManager' in window,
+    isIOS: getIsIOSDevice(),
+    isSecureContext: typeof window !== 'undefined' && window.isSecureContext,
+    isStandalone: getIsStandaloneMode(),
+  })
 }
 
 export async function showLocalTestNotification(): Promise<void> {
@@ -170,6 +244,40 @@ async function getServiceWorkerRegistration(): Promise<ServiceWorkerRegistration
   }
 
   return serviceWorker.ready
+}
+
+type PushSubscriptionWithOptions = PushSubscription & {
+  options?: {
+    applicationServerKey?: ArrayBuffer | null
+  }
+}
+
+function subscriptionUsesApplicationServerKey(
+  subscription: PushSubscription,
+  expectedKey: Uint8Array<ArrayBuffer>,
+): boolean {
+  const applicationServerKey = (subscription as PushSubscriptionWithOptions).options
+    ?.applicationServerKey
+
+  if (!applicationServerKey) {
+    return true
+  }
+
+  return byteArraysEqual(new Uint8Array(applicationServerKey), expectedKey)
+}
+
+function byteArraysEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) {
+    return false
+  }
+
+  for (let index = 0; index < left.byteLength; index += 1) {
+    if (left[index] !== right[index]) {
+      return false
+    }
+  }
+
+  return true
 }
 
 function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {

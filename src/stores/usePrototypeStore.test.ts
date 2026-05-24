@@ -34,8 +34,8 @@ describe('usePrototypeStore helpers and actions', () => {
     expect(reduceQuantityLabel('1모')).toBeNull()
   })
 
-  it('consumes matching recipe ingredients and clears removed selections', () => {
-    usePrototypeStore.getState().consumeRecipe('tofu-recipe')
+  it('consumes matching recipe ingredients and clears removed selections', async () => {
+    await usePrototypeStore.getState().consumeRecipe('tofu-recipe')
 
     expect(usePrototypeStore.getState().items).toEqual([])
     expect(usePrototypeStore.getState().selectedIngredientIds).toEqual([])

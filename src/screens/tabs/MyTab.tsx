@@ -1,6 +1,6 @@
 import { Icon } from '../../components/ui/Icons'
 import { mySettingGroups } from '../../domain/prototype'
-import { AuthProfileCard } from '../../features/auth/AuthControls'
+import { AuthBackendStatusCard, AuthProfileCard } from '../../features/auth/AuthControls'
 import { CameraReadinessCard } from '../../features/camera/CameraReadinessCard'
 import { NotificationSetupCard } from '../../features/notifications/NotificationSetupCard'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
@@ -30,6 +30,8 @@ export function MyTab() {
       </section>
 
       <AuthProfileCard savedRecipesCount={savedRecipesCount} totalItemsCount={totalItemsCount} />
+
+      <AuthBackendStatusCard />
 
       {(!isStandalone && (isInstallable || isIOS)) && (
         <div className="grid gap-2.5 rounded-2xl border border-[var(--color-border-brand)] bg-gradient-to-r from-[var(--color-bg-overlay)] to-[var(--color-surface-brand-soft)]/30 p-4.5 shadow-[var(--shadow-glass)]">
@@ -72,18 +74,16 @@ export function MyTab() {
             </span>
             <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] divide-y divide-[var(--color-border-default)] shadow-[var(--shadow-glass)]">
               {group.items.map((item) => (
-                <button
-                  type="button"
+                <div
                   key={item}
-                  disabled
-                  className="flex min-h-[46px] w-full cursor-not-allowed items-center justify-between border-0 bg-transparent px-4 text-left font-bold text-[var(--color-content-default)] opacity-75 transition-colors"
+                  className="flex min-h-[46px] w-full items-center justify-between px-4 text-left font-bold text-[var(--color-content-default)] opacity-75"
                 >
                   <span className="text-[0.82rem] font-semibold">{item}</span>
                   <div className="flex items-center gap-1 text-[0.72rem] font-bold text-[var(--color-content-muted)]">
                     <span>준비중</span>
                     <Icon.ChevronRight size={12} />
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           </div>

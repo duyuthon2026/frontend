@@ -2,15 +2,28 @@ import { useEffect, useMemo, useState } from 'react'
 import { Panel } from '../../components/ui/Panel'
 import { StatusPill } from '../../components/ui/StatusPill'
 import {
+  getBrowserPushPreflight,
   getAppServiceWorkerReadiness,
   setupPushNotifications,
   showLocalTestNotification,
 } from '../../lib/pwa'
-import { registerPushSubscription, sendBackendTestPush, shouldUseBackendApi } from '../../lib/backendApi'
+import { AccountRequiredCard } from '../auth/AuthSession'
+import { useAuthSession } from '../auth/authSessionContext'
+import {
+  fetchVapidPublicKey,
+  registerPushSubscription,
+  sendBackendTestPush,
+  shouldUseBackendApi,
+  type PushTestResultDto,
+} from '../../lib/backendApi'
 import { useDeviceStore } from '../../stores/useDeviceStore'
 
 export function NotificationSetupCard() {
   const [isTestingNotification, setIsTestingNotification] = useState(false)
+  const [isLoadingPushConfig, setIsLoadingPushConfig] = useState(false)
+  const [vapidPublicKey, setVapidPublicKey] = useState(
+    () => import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim() ?? '',
+  )
   const {
     notificationMessage,
     notificationStatus,
@@ -19,13 +32,40 @@ export function NotificationSetupCard() {
     setNotificationState,
     setServiceWorkerState,
   } = useDeviceStore()
+  const { canUseBackendAccount, requiresAccount } = useAuthSession()
+  const pushPreflight = useMemo(() => getBrowserPushPreflight(), [])
 
-  const vapidConfigured = useMemo(
-    () => Boolean(import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim()),
-    [],
-  )
+  const vapidConfigured = useMemo(() => Boolean(vapidPublicKey.trim()), [vapidPublicKey])
   const canSendTestNotification =
     typeof Notification !== 'undefined' && Notification.permission === 'granted'
+
+  useEffect(() => {
+    const envVapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim() ?? ''
+    if (!shouldUseBackendApi()) {
+      setVapidPublicKey(envVapidPublicKey)
+      return undefined
+    }
+
+    let isCancelled = false
+    setIsLoadingPushConfig(true)
+    fetchVapidPublicKey()
+      .then((serverVapidPublicKey) => {
+        if (isCancelled) return
+        setVapidPublicKey(serverVapidPublicKey || envVapidPublicKey)
+      })
+      .catch(() => {
+        if (isCancelled) return
+        setVapidPublicKey(envVapidPublicKey)
+      })
+      .finally(() => {
+        if (isCancelled) return
+        setIsLoadingPushConfig(false)
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     const serviceWorker = getAppServiceWorkerReadiness()
@@ -48,12 +88,18 @@ export function NotificationSetupCard() {
       })
   }, [setServiceWorkerState])
 
+  useEffect(() => {
+    if (pushPreflight.canRequest || notificationStatus !== 'idle') return
+    setNotificationState('unsupported', pushPreflight.message)
+  }, [notificationStatus, pushPreflight, setNotificationState])
+
   const handleEnablePush = async () => {
+    if (!canUseBackendAccount) return
     setNotificationState('checking', '알림 권한 요청 중')
 
     try {
       const result = await setupPushNotifications(
-        import.meta.env.VITE_VAPID_PUBLIC_KEY,
+        vapidPublicKey,
       )
 
       if (result.status === 'blocked') {
@@ -92,12 +138,14 @@ export function NotificationSetupCard() {
   }
 
   const handleTestNotification = async () => {
+    if (!canUseBackendAccount) return
     setIsTestingNotification(true)
 
     try {
       if (shouldUseBackendApi()) {
-        await sendBackendTestPush()
-        setNotificationState('ready', '서버 테스트 푸시 발송 완료')
+        const result = await sendBackendTestPush()
+        const outcome = getBackendPushTestOutcome(result)
+        setNotificationState(outcome.status, outcome.message)
       } else {
         await showLocalTestNotification()
         setNotificationState('ready', '테스트 알림 발송 완료')
@@ -132,25 +180,75 @@ export function NotificationSetupCard() {
         <button
           type="button"
           className="flex min-h-11 items-center justify-center rounded-xl border-0 bg-[var(--color-primary)] px-4 text-[0.84rem] font-extrabold text-[var(--color-on-primary)] shadow-[var(--shadow-glass)] transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={notificationStatus === 'checking'}
+          disabled={
+            notificationStatus === 'checking' ||
+            !canUseBackendAccount ||
+            !pushPreflight.canRequest ||
+            !vapidConfigured ||
+            isLoadingPushConfig
+          }
           onClick={() => void handleEnablePush()}
         >
-          {notificationStatus === 'checking' ? '확인 중' : '알림 켜기'}
+          {notificationStatus === 'checking' || isLoadingPushConfig ? '확인 중' : '알림 켜기'}
         </button>
         <button
           type="button"
           className="flex min-h-11 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-4 text-[0.82rem] font-bold text-[var(--color-content-default)] transition-all hover:border-[var(--color-border-brand)] disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={isTestingNotification || !canSendTestNotification}
+          disabled={isTestingNotification || !canSendTestNotification || !canUseBackendAccount}
           onClick={() => void handleTestNotification()}
         >
           {isTestingNotification ? '발송 중' : '테스트'}
         </button>
       </div>
+      {requiresAccount && (
+        <AccountRequiredCard
+          actionLabel="푸시 구독과 테스트 알림은 가입 후 서버 계정에 연결됩니다."
+          className="p-3"
+        />
+      )}
       {!vapidConfigured && (
         <p className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 py-2 text-[0.76rem] text-[var(--color-content-muted)]">
-          서버 푸시는 <code>VITE_VAPID_PUBLIC_KEY</code> 설정 뒤 구독 생성
+          서버 VAPID 공개키를 불러오지 못해 푸시 구독을 만들 수 없습니다.
         </p>
       )}
     </Panel>
   )
+}
+
+function getBackendPushTestOutcome(result: PushTestResultDto): {
+  message: string
+  status: 'error' | 'ready'
+} {
+  if (result.sent > 0 && result.failed === 0) {
+    return {
+      message: `서버 테스트 푸시 ${result.sent}건 발송 완료`,
+      status: 'ready',
+    }
+  }
+
+  if (result.sent > 0) {
+    return {
+      message: `테스트 푸시 ${result.sent}건 발송, ${result.failed}건 실패. 실패한 기기는 다시 구독하세요.`,
+      status: 'error',
+    }
+  }
+
+  if (result.inactiveIds.length > 0) {
+    return {
+      message: '저장된 푸시 구독이 만료되었거나 서버 키와 맞지 않아 제거되었습니다. 알림을 다시 켜세요.',
+      status: 'error',
+    }
+  }
+
+  if (result.failed > 0) {
+    return {
+      message: `저장된 구독으로 테스트 푸시 ${result.failed}건 발송 실패. 알림을 다시 켜세요.`,
+      status: 'error',
+    }
+  }
+
+  return {
+    message: '활성 푸시 구독이 없습니다. 알림 켜기부터 다시 실행하세요.',
+    status: 'error',
+  }
 }

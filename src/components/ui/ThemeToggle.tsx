@@ -1,33 +1,43 @@
 import { useEffect, useState } from 'react'
+import { useAuthSession } from '../../features/auth/authSessionContext'
+import { updateClientPreferences, type ClientThemePreference } from '../../lib/backendApi'
 import { Icon } from './Icons'
 
 export function ThemeToggle() {
-  const [isDark, setIsDark] = useState(() => {
+  const { canUseBackendAccount } = useAuthSession()
+  const [theme, setTheme] = useState<ClientThemePreference>(() => {
     if (typeof window !== 'undefined') {
-      return (
-        localStorage.getItem('theme') === 'dark' ||
-        (!localStorage.getItem('theme') &&
-          window.matchMedia('(prefers-color-scheme: dark)').matches)
-      )
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
     }
-    return false
+    return 'light'
   })
+  const isDark = theme === 'dark'
 
   useEffect(() => {
     const root = document.documentElement
     if (isDark) {
       root.classList.add('dark')
-      localStorage.setItem('theme', 'dark')
     } else {
       root.classList.remove('dark')
-      localStorage.setItem('theme', 'light')
     }
   }, [isDark])
+
+  const handleToggle = () => {
+    const nextTheme: ClientThemePreference = isDark ? 'light' : 'dark'
+    setTheme(nextTheme)
+    if (canUseBackendAccount) {
+      void updateClientPreferences({ theme: nextTheme }).catch((error: unknown) => {
+        if (import.meta.env.DEV) {
+          console.warn('Theme preference sync failed:', error)
+        }
+      })
+    }
+  }
 
   return (
     <button
       type="button"
-      onClick={() => setIsDark(!isDark)}
+      onClick={handleToggle}
       className="relative grid h-10 w-10 place-items-center rounded-full border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] text-[var(--color-content-default)] shadow-[var(--shadow-glass)] transition-all hover:border-[var(--color-border-brand)] hover:scale-105 active:scale-95"
       aria-label={isDark ? '라이트 모드로 전환' : '다크 모드로 전환'}
     >

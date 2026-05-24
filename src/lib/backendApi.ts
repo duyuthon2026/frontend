@@ -1,6 +1,7 @@
 import type { InventoryItem, RecipeCard } from '../domain/prototype'
 import type { LensCandidate } from '../stores/usePrototypeStore'
 import { apiFetch, apiJson } from './apiClient'
+import { isClerkConfigured } from './clerk'
 
 type PageDto<T> = {
   data: T[]
@@ -52,6 +53,11 @@ type RecipeConsumeResultDto = {
 type LensAnalyzeResponseDto = {
   analysisId: string
   candidates: LensCandidate[]
+  provider?: {
+    latencyMs?: number
+    model?: string
+    name: string
+  }
   source: 'camera' | 'upload' | 'simulator' | 'natural_text'
   status: 'completed' | 'needs_review'
 }
@@ -59,6 +65,44 @@ type LensAnalyzeResponseDto = {
 type PushSubscriptionRecordDto = {
   id: string
   active: boolean
+}
+
+export type PushTestResultDto = {
+  queued: true
+  sent: number
+  failed: number
+  inactiveIds: string[]
+}
+
+export type PrototypeImportState = {
+  items: InventoryItem[]
+  recipes: RecipeCard[]
+  selectedIngredientIds: string[]
+}
+
+type PrototypeImportResultDto = {
+  imported: {
+    items: number
+    recipes: number
+    selectedIngredientIds: number
+  }
+  idMap: {
+    items: Record<string, string>
+    recipes: Record<string, string>
+  }
+  skipped: Array<{
+    clientId?: string
+    reason: string
+    type: 'item' | 'recipe' | 'selection'
+  }>
+}
+
+export type ClientThemePreference = 'light' | 'dark' | 'system'
+
+type ClientPreferenceDto = {
+  onboardingCompleted?: boolean
+  onboardingCompletedAt?: string | null
+  theme?: ClientThemePreference
 }
 
 type PushSubscriptionPayload = {
@@ -70,10 +114,18 @@ type PushSubscriptionPayload = {
   }
 }
 
+type VapidPublicKeyDto = {
+  publicKey: string
+}
+
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
 export function shouldUseBackendApi(): boolean {
-  return import.meta.env.MODE !== 'test' && typeof fetch === 'function'
+  return (
+    (isClerkConfigured || import.meta.env.VITE_ALLOW_ANONYMOUS_BACKEND === 'true') &&
+    import.meta.env.MODE !== 'test' &&
+    typeof fetch === 'function'
+  )
 }
 
 export async function fetchInventoryItems(): Promise<InventoryItem[]> {
@@ -210,12 +262,49 @@ export async function registerPushSubscription(
   }) as PushSubscriptionRecordDto
 }
 
-export async function sendBackendTestPush(): Promise<void> {
-  await apiJson('/api/v1/push/test', {
+export async function fetchVapidPublicKey(): Promise<string> {
+  const result = await apiJson('/api/v1/push/vapid-public-key') as VapidPublicKeyDto
+  return result.publicKey.trim()
+}
+
+export async function sendBackendTestPush(): Promise<PushTestResultDto> {
+  return await apiJson('/api/v1/push/test', {
     body: JSON.stringify({}),
     headers: withIdempotencyHeaders(createClientRequestId('push-test')),
     method: 'POST',
-  })
+  }) as PushTestResultDto
+}
+
+export async function importPrototypeState(
+  state: PrototypeImportState,
+  strategy: 'merge' | 'replace_if_empty' | 'dry_run' = 'replace_if_empty',
+): Promise<PrototypeImportResultDto> {
+  const idempotencyKey = createStableClientRequestId('prototype-import', state)
+  return await apiJson('/api/v1/sync/import-prototype-state', {
+    body: JSON.stringify({
+      clientGeneratedAt: new Date().toISOString(),
+      source: 'prototype-store',
+      state: {
+        version: 2,
+        items: state.items,
+        recipes: state.recipes,
+        selectedIngredientIds: state.selectedIngredientIds,
+      },
+      strategy,
+    }),
+    headers: withIdempotencyHeaders(idempotencyKey),
+    method: 'POST',
+  }) as PrototypeImportResultDto
+}
+
+export async function updateClientPreferences(
+  preferences: ClientPreferenceDto,
+): Promise<ClientPreferenceDto> {
+  return await apiJson('/api/v1/me/client-preferences', {
+    body: JSON.stringify(preferences),
+    headers: jsonHeaders,
+    method: 'PATCH',
+  }) as ClientPreferenceDto
 }
 
 function createClientRequestId(scope: string): string {
@@ -223,6 +312,34 @@ function createClientRequestId(scope: string): string {
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`
   return `${scope}-${randomPart}`
+}
+
+function createStableClientRequestId(scope: string, value: unknown): string {
+  return `${scope}-${hashStableJson(value)}`
+}
+
+function hashStableJson(value: unknown): string {
+  const input = JSON.stringify(sortJson(value))
+  let hash = 2166136261
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(36)
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJson)
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entryValue]) => [key, sortJson(entryValue)]),
+    )
+  }
+  return value
 }
 
 function withIdempotencyHeaders(idempotencyKey: string, includeJsonContentType = true): HeadersInit {

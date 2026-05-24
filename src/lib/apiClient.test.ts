@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { type ApiError, type ApiFetch, apiJson, resolveApiUrl } from './apiClient'
+import {
+  type ApiError,
+  type ApiFetch,
+  apiJson,
+  resolveApiUrl,
+  setApiAuthTokenProvider,
+} from './apiClient'
 
 describe('api client helpers', () => {
   it('resolves same-origin and external backend API URLs', () => {
@@ -60,6 +66,35 @@ describe('api client helpers', () => {
     expect(headers.get('authorization')).toBe('Bearer token-123')
   })
 
+  it('uses the configured async auth token provider when explicit auth is omitted', async () => {
+    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = []
+    const fetchImpl: ApiFetch = (input, init) => {
+      requests.push({ input, init })
+      return Promise.resolve(
+        new Response(JSON.stringify({ ok: true }), {
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+    }
+
+    setApiAuthTokenProvider(() => Promise.resolve('clerk-token-123'))
+    try {
+      await apiJson('/api/inventory', {
+        baseUrl: 'https://api.janban.example',
+        fetchImpl,
+      })
+    } finally {
+      setApiAuthTokenProvider(undefined)
+    }
+
+    const request = requests[0]
+    if (!request) {
+      throw new Error('Expected one API request')
+    }
+
+    expect(new Headers(request.init?.headers).get('authorization')).toBe('Bearer clerk-token-123')
+  })
+
   it('throws typed API errors with response status and body', async () => {
     const fetchImpl: ApiFetch = () => Promise.resolve(
       new Response('service unavailable', { status: 503 }),
@@ -70,5 +105,19 @@ describe('api client helpers', () => {
       status: 503,
       url: '/api/inventory',
     } satisfies Partial<ApiError>)
+  })
+
+  it('uses Problem Details text for API error messages', async () => {
+    const fetchImpl: ApiFetch = () => Promise.resolve(
+      new Response(JSON.stringify({
+        title: 'No inventory ingredients found',
+        status: 422,
+        detail: 'Lens는 식재료만 등록합니다.',
+      }), { status: 422 }),
+    )
+
+    await expect(apiJson('/api/inventory', { baseUrl: '', fetchImpl })).rejects.toThrow(
+      'Lens는 식재료만 등록합니다.',
+    )
   })
 })

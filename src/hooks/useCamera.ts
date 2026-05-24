@@ -103,8 +103,13 @@ export function useCamera(): CameraState {
       streamRef.current = stream
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
+        const video = videoRef.current
+        video.muted = true
+        video.playsInline = true
+        video.setAttribute('playsinline', 'true')
+        video.setAttribute('webkit-playsinline', 'true')
+        video.srcObject = stream
+        await video.play()
       }
 
       if (isMountedRef.current && requestIdRef.current === requestId) {
