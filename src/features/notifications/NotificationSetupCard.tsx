@@ -20,7 +20,7 @@ import { useDeviceStore } from '../../stores/useDeviceStore'
 
 export function NotificationSetupCard() {
   const [isTestingNotification, setIsTestingNotification] = useState(false)
-  const [isLoadingPushConfig, setIsLoadingPushConfig] = useState(false)
+  const [isLoadingPushConfig, setIsLoadingPushConfig] = useState(() => shouldUseBackendApi())
   const [vapidPublicKey, setVapidPublicKey] = useState(
     () => import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim() ?? '',
   )
@@ -42,12 +42,10 @@ export function NotificationSetupCard() {
   useEffect(() => {
     const envVapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim() ?? ''
     if (!shouldUseBackendApi()) {
-      setVapidPublicKey(envVapidPublicKey)
       return undefined
     }
 
     let isCancelled = false
-    setIsLoadingPushConfig(true)
     fetchVapidPublicKey()
       .then((serverVapidPublicKey) => {
         if (isCancelled) return

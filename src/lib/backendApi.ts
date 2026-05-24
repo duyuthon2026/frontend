@@ -120,12 +120,23 @@ type VapidPublicKeyDto = {
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
+export function canUseBackendApi({
+  allowAnonymousBackend = import.meta.env.VITE_ALLOW_ANONYMOUS_BACKEND === 'true',
+  clerkConfigured = isClerkConfigured,
+  hasFetch = typeof fetch === 'function',
+  mode = import.meta.env.MODE,
+}: {
+  allowAnonymousBackend?: boolean
+  clerkConfigured?: boolean
+  hasFetch?: boolean
+  mode?: string
+} = {}): boolean {
+  const anonymousBackendAllowed = allowAnonymousBackend && mode !== 'production'
+  return (clerkConfigured || anonymousBackendAllowed) && mode !== 'test' && hasFetch
+}
+
 export function shouldUseBackendApi(): boolean {
-  return (
-    (isClerkConfigured || import.meta.env.VITE_ALLOW_ANONYMOUS_BACKEND === 'true') &&
-    import.meta.env.MODE !== 'test' &&
-    typeof fetch === 'function'
-  )
+  return canUseBackendApi()
 }
 
 export async function fetchInventoryItems(): Promise<InventoryItem[]> {

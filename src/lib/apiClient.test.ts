@@ -6,6 +6,7 @@ import {
   resolveApiUrl,
   setApiAuthTokenProvider,
 } from './apiClient'
+import { canUseBackendApi } from './backendApi'
 
 describe('api client helpers', () => {
   it('resolves same-origin and external backend API URLs', () => {
@@ -119,5 +120,40 @@ describe('api client helpers', () => {
     await expect(apiJson('/api/inventory', { baseUrl: '', fetchImpl })).rejects.toThrow(
       'Lens는 식재료만 등록합니다.',
     )
+  })
+})
+
+describe('backend API policy', () => {
+  it('does not allow anonymous backend mode in production builds', () => {
+    expect(canUseBackendApi({
+      allowAnonymousBackend: true,
+      clerkConfigured: false,
+      hasFetch: true,
+      mode: 'production',
+    })).toBe(false)
+  })
+
+  it('allows Clerk-authenticated backend mode in production builds', () => {
+    expect(canUseBackendApi({
+      allowAnonymousBackend: false,
+      clerkConfigured: true,
+      hasFetch: true,
+      mode: 'production',
+    })).toBe(true)
+  })
+
+  it('keeps anonymous backend mode available only for non-test local smoke runs', () => {
+    expect(canUseBackendApi({
+      allowAnonymousBackend: true,
+      clerkConfigured: false,
+      hasFetch: true,
+      mode: 'development',
+    })).toBe(true)
+    expect(canUseBackendApi({
+      allowAnonymousBackend: true,
+      clerkConfigured: false,
+      hasFetch: true,
+      mode: 'test',
+    })).toBe(false)
   })
 })

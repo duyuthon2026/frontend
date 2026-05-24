@@ -42,8 +42,8 @@ bun run preview      # 빌드 결과 미리보기
 
 - `VITE_VAPID_PUBLIC_KEY`: Web Push VAPID 공개키. 비어 있으면 권한 요청/테스트 알림만 가능하고 서버 푸시 구독 생성은 보류됩니다.
 - `VITE_API_BASE_URL`: API HTTP(S) origin only. 같은 origin에서 `/api/*`를 제공하면 비워두고, API가 별도 origin이면 `https://api.example.com`처럼 path/query/hash 없이 설정합니다.
-- `VITE_CLERK_PUBLISHABLE_KEY`: Clerk 공개키. 비어 있으면 `ClerkProvider`를 붙이지 않고 샘플 데이터 기반 in-memory 로컬 데모로 실행합니다.
-- `VITE_ALLOW_ANONYMOUS_BACKEND`: 로컬 백엔드 연동 smoke test 전용. `true`면 Clerk 미설정 상태에서도 백엔드 anonymous household API를 사용합니다.
+- `VITE_CLERK_PUBLISHABLE_KEY`: Clerk 공개키. Production backend 저장에는 필요합니다. 비어 있으면 `ClerkProvider`를 붙이지 않고 샘플 데이터 기반 in-memory 로컬 데모로 실행합니다.
+- `VITE_ALLOW_ANONYMOUS_BACKEND`: 비 production 로컬 백엔드 연동 smoke test 전용. Production build에서는 `true`여도 익명 backend 저장을 사용하지 않습니다.
 - `VITE_DEV_SERVER_HOST`: `1`, `true`, `yes`, `on`이면 Vite 개발 서버가 외부 호스트 바인딩을 허용합니다. 로컬 네트워크 테스트에만 사용하세요.
 
 백엔드 sibling 프로젝트(`../DuYuTho_n`)에서 `bun run env:local-production`을 실행하면
