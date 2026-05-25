@@ -607,7 +607,7 @@ Frontend-required shape:
 type RecipeIngredientDto = {
   name: string
   quantity: string
-  avatar: string // emoji or small display token, e.g. "🥬"
+  avatar: string // stable icon token, e.g. "eco", "restaurant", "soup_kitchen"
 }
 
 type RecipeCardDto = {

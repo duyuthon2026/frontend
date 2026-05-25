@@ -13,7 +13,7 @@ const tofuItem: InventoryItem = {
 const tofuRecipe: RecipeCard = {
   id: 'tofu-recipe',
   name: '두부 구이',
-  ingredients: [{ name: '두부', quantity: '1모', avatar: '⬜' }],
+  ingredients: [{ name: '두부', quantity: '1모', avatar: 'restaurant' }],
   saved: false,
   time: '10분',
 }

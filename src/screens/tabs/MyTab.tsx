@@ -3,6 +3,7 @@ import { mySettingGroups } from '../../domain/prototype'
 import { AuthBackendStatusCard, AuthProfileCard } from '../../features/auth/AuthControls'
 import { CameraReadinessCard } from '../../features/camera/CameraReadinessCard'
 import { NotificationSetupCard } from '../../features/notifications/NotificationSetupCard'
+import { RecipePreferenceCard } from '../../features/preferences/RecipePreferenceCard'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
 import { usePWAInstall } from '../../lib/pwa'
 
@@ -63,6 +64,8 @@ export function MyTab() {
       )}
 
       <CameraReadinessCard />
+
+      <RecipePreferenceCard />
 
       <NotificationSetupCard />
 

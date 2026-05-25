@@ -55,6 +55,7 @@ export type RecipeCard = {
   id: string
   ingredients: RecipeIngredient[]
   name: string
+  recommendationReasons?: string[]
   saved: boolean
   time: string
 }
@@ -282,9 +283,9 @@ export const recipeCards: RecipeCard[] = [
     id: 'r1',
     name: '애호박 두부 덮밥',
     ingredients: [
-      { name: '두부', quantity: '1모', avatar: '⬜' },
-      { name: '애호박', quantity: '1/2개', avatar: '🥒' },
-      { name: '버섯', quantity: '180g', avatar: '🍄' },
+      { name: '두부', quantity: '1모', avatar: 'restaurant' },
+      { name: '애호박', quantity: '1/2개', avatar: 'eco' },
+      { name: '버섯', quantity: '180g', avatar: 'eco' },
     ],
     saved: true,
     time: '15분',
@@ -293,8 +294,8 @@ export const recipeCards: RecipeCard[] = [
     id: 'r2',
     name: '버섯 된장국',
     ingredients: [
-      { name: '버섯', quantity: '100g', avatar: '🍄' },
-      { name: '두부', quantity: '1/2모', avatar: '⬜' },
+      { name: '버섯', quantity: '100g', avatar: 'eco' },
+      { name: '두부', quantity: '1/2모', avatar: 'restaurant' },
     ],
     saved: false,
     time: '12분',
@@ -303,8 +304,8 @@ export const recipeCards: RecipeCard[] = [
     id: 'r3',
     name: '상추 겉절이',
     ingredients: [
-      { name: '상추', quantity: '8장', avatar: '🥬' },
-      { name: '고춧가루', quantity: '1큰술', avatar: '🌶️' },
+      { name: '상추', quantity: '8장', avatar: 'eco' },
+      { name: '고춧가루', quantity: '1큰술', avatar: 'soup_kitchen' },
     ],
     saved: false,
     time: '7분',

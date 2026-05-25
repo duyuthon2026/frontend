@@ -14,7 +14,14 @@ import {
   parseQuantityLabel,
 } from '../../lib/quantity'
 import { parseLensNaturalText } from '../../lib/lensParser'
-import { analyzeLensImage, analyzeLensText, shouldUseBackendApi } from '../../lib/backendApi'
+import {
+  analyzeLensImage,
+  analyzeLensText,
+  previewInventoryMergeCandidates,
+  shouldUseBackendApi,
+  type InventoryMergePreviewDto,
+  type LensImageMode,
+} from '../../lib/backendApi'
 import {
   shouldRemoveCandidateBySwipe,
   shouldSuppressCandidateClickAfterSwipe,
@@ -31,6 +38,11 @@ type AnalysisProvider = {
 const scanGridCells = Array.from({ length: 9 }, (_, index) => index)
 
 const cameraGuideItems = ['영수증 글자는 중앙에', '재료는 겹치지 않게', '어두우면 파일 업로드']
+
+const lensModeOptions: Array<{ id: LensImageMode; label: string; message: string }> = [
+  { id: 'fridge', label: '냉장고', message: '냉장고 사진을 Vision으로 분석하고 중복 후보를 확인합니다.' },
+  { id: 'receipt', label: '영수증', message: '영수증 OCR로 구매 식재료를 추출하고 기한 확인 상태를 표시합니다.' },
+]
 
 const candidateListVariants: Variants = {
   hidden: { opacity: 0 },
@@ -88,10 +100,12 @@ export function LensTab() {
   const [analysisMessage, setAnalysisMessage] = useState('실제 AI 분석 요청 중')
   const [naturalText, setNaturalText] = useState('')
   const [isNaturalMode, setIsNaturalMode] = useState(false)
+  const [lensMode, setLensMode] = useState<LensImageMode>('fridge')
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null)
   const [expandedCandidateIds, setExpandedCandidateIds] = useState<string[]>([])
   const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [analysisProvider, setAnalysisProvider] = useState<AnalysisProvider | null>(null)
+  const [mergePreview, setMergePreview] = useState<InventoryMergePreviewDto | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const suppressedCandidateClickRef = useRef<string | null>(null)
@@ -158,26 +172,50 @@ export function LensTab() {
     if (!canUseBackendAccount) return
     setAnalysisError(null)
     setAnalysisProvider(null)
+    setMergePreview(null)
     setAnalysisMessage(message)
     setStep('analyzing')
   }
 
-  const applyAnalyzedCandidates = (nextCandidates: LensCandidate[], provider?: AnalysisProvider) => {
-    setCandidates(nextCandidates)
-    setExpandedCandidateIds(nextCandidates.map((candidate) => candidate.id))
+  const applyAnalyzedCandidates = async (nextCandidates: LensCandidate[], provider?: AnalysisProvider) => {
+    let enrichedCandidates = nextCandidates
+    let preview: InventoryMergePreviewDto | null = null
+
+    if (shouldUseBackendApi() && nextCandidates.length > 0) {
+      try {
+        preview = await previewInventoryMergeCandidates(
+          nextCandidates.map((candidate) => ({
+            candidateId: candidate.id,
+            expiresAt: candidate.expiresAt,
+            location: candidate.location,
+            name: candidate.name,
+            quantity: candidate.quantity,
+          })),
+        )
+        enrichedCandidates = markDuplicateReviewCandidates(nextCandidates, preview)
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.warn('Failed to preview inventory merge candidates:', error)
+        }
+      }
+    }
+
+    setMergePreview(preview)
+    setCandidates(enrichedCandidates)
+    setExpandedCandidateIds(enrichedCandidates.map((candidate) => candidate.id))
     setAnalysisProvider(provider ?? null)
     setStep('result')
   }
 
   const handleShutterClick = async () => {
     if (!canUseBackendAccount || !isCameraActive || !videoRef.current) return
-    beginAnalysis('카메라 프레임을 OpenAI Vision으로 분석 중입니다.')
+    beginAnalysis(lensModeOptions.find((option) => option.id === lensMode)?.message ?? '카메라 프레임을 분석 중입니다.')
 
     try {
       const imageFile = await captureVideoFrame(videoRef.current)
       stopCamera()
-      const response = await analyzeLensImage(imageFile, { maxCandidates: 5, source: 'camera' })
-      applyAnalyzedCandidates(response.candidates, response.provider)
+      const response = await analyzeLensImage(imageFile, { maxCandidates: 5, mode: lensMode, source: 'camera' })
+      await applyAnalyzedCandidates(response.candidates, response.provider)
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : '카메라 이미지 분석 API 호출 실패')
     }
@@ -193,12 +231,12 @@ export function LensTab() {
       const url = URL.createObjectURL(file)
       setUploadedImageUrl(url)
       stopCamera()
-      beginAnalysis('업로드한 사진을 OpenAI Vision으로 분석 중입니다.')
+      beginAnalysis(lensModeOptions.find((option) => option.id === lensMode)?.message ?? '업로드한 사진을 분석 중입니다.')
 
       if (shouldUseBackendApi()) {
         try {
-          const response = await analyzeLensImage(file, { maxCandidates: 5, source: 'upload' })
-          applyAnalyzedCandidates(response.candidates, response.provider)
+          const response = await analyzeLensImage(file, { maxCandidates: 5, mode: lensMode, source: 'upload' })
+          await applyAnalyzedCandidates(response.candidates, response.provider)
         } catch (error) {
           setAnalysisError(error instanceof Error ? error.message : '이미지 분석 API 호출 실패')
         }
@@ -216,7 +254,7 @@ export function LensTab() {
     if (shouldUseBackendApi()) {
       try {
         const response = await analyzeLensText(naturalText)
-        applyAnalyzedCandidates(response.candidates, response.provider)
+        await applyAnalyzedCandidates(response.candidates, response.provider)
         return
       } catch (error) {
         setAnalysisError(error instanceof Error ? error.message : '자연어 분석 API 호출 실패')
@@ -353,6 +391,29 @@ export function LensTab() {
             transition={{ duration: 0.2 }}
             className="grid gap-4.5"
           >
+            {!isNaturalMode && (
+              <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-1 shadow-[var(--shadow-glass)]">
+                {lensModeOptions.map((option) => {
+                  const isActive = lensMode === option.id
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setLensMode(option.id)}
+                      aria-pressed={isActive}
+                      className={cn(
+                        'min-h-9 rounded-lg border-0 text-[0.78rem] font-extrabold transition-all',
+                        isActive
+                          ? 'bg-[var(--color-primary)] text-[var(--color-on-primary)]'
+                          : 'bg-transparent text-[var(--color-content-muted)] hover:text-[var(--color-content-default)]',
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
             {!isNaturalMode ? (
               <>
                 <div
@@ -571,6 +632,21 @@ export function LensTab() {
               </div>
             </div>
 
+            {mergePreview && (mergePreview.mergeGroups.length > 0 || mergePreview.duplicateSuggestions.length > 0) && (
+              <div className="grid gap-2 rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-surface-warning-soft)]/25 p-3">
+                <span className="text-[0.72rem] font-black text-[var(--color-warning)]">
+                  중복 가능 후보 {mergePreview.duplicateSuggestions.length}개
+                </span>
+                <div className="grid gap-1">
+                  {mergePreview.mergeGroups.slice(0, 3).map((group) => (
+                    <p key={`${group.candidateName}-${group.existingItemId}`} className="m-0 text-[0.72rem] font-semibold text-[var(--color-content-muted)]">
+                      {group.candidateName} → 기존 {group.existingName}, 합산 {group.suggestedQuantity}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <motion.div
               variants={candidateListVariants}
               initial="hidden"
@@ -582,6 +658,8 @@ export function LensTab() {
                 const isEditing = editingCandidateId === item.id
                 const isExpanded = expandedCandidateIds.includes(item.id) || isEditing
                 const daysLeft = calculateDaysLeft(item.expiresAt)
+                const duplicateSuggestion = findDuplicateSuggestion(item, mergePreview)
+                const reviewLabels = getCandidateReviewLabels(item)
 
                 return (
                   <motion.article
@@ -641,6 +719,20 @@ export function LensTab() {
                         <span className="text-[0.72rem] font-bold text-[var(--color-content-muted)]">
                           {item.location} 보관 · {daysLeft < 0 ? '기한초과' : daysLeft === 0 ? '오늘까지' : `D-${daysLeft}`} · {item.expiresAt}
                         </span>
+                        {(item.needsReview || duplicateSuggestion) && (
+                          <div className="flex flex-wrap gap-1">
+                            {item.needsReview && (
+                              <span className="rounded border border-[var(--color-warning)]/40 bg-[var(--color-surface-warning-soft)] px-1.5 py-0.5 text-[0.62rem] font-black text-[var(--color-warning)]">
+                                확인 필요
+                              </span>
+                            )}
+                            {duplicateSuggestion && (
+                              <span className="rounded border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-1.5 py-0.5 text-[0.62rem] font-black text-[var(--color-content-muted)]">
+                                기존 {duplicateSuggestion.existingName} 중복 가능
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </button>
                       <div className="flex shrink-0 items-center gap-1.5">
                         <button
@@ -743,7 +835,17 @@ export function LensTab() {
                         </div>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-3 gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)]/70 p-3 text-center">
+                      <div className="grid gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)]/70 p-3 text-center">
+                        {reviewLabels.length > 0 && (
+                          <div className="flex flex-wrap justify-center gap-1">
+                            {reviewLabels.map((label) => (
+                              <span key={label} className="rounded-md bg-[var(--color-surface-warning-soft)] px-2 py-1 text-[0.66rem] font-black text-[var(--color-warning)]">
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="grid grid-cols-3 gap-2">
                         <div className="grid gap-0.5">
                           <span className="text-[0.62rem] font-black text-[var(--color-content-muted)]">위치</span>
                           <strong className="text-[0.76rem] text-[var(--color-content-default)]">{item.location}</strong>
@@ -757,6 +859,7 @@ export function LensTab() {
                           <strong className="text-[0.76rem] text-[var(--color-content-default)]">
                             {daysLeft < 0 ? '확인 필요' : daysLeft <= 2 ? '빠른 소진' : '여유'}
                           </strong>
+                        </div>
                         </div>
                       </div>
                     )}
@@ -832,6 +935,48 @@ const getTrustedBlobUrl = (value: string) => {
   } catch {
     return null
   }
+}
+
+function markDuplicateReviewCandidates(
+  candidates: LensCandidate[],
+  preview: InventoryMergePreviewDto,
+): LensCandidate[] {
+  return candidates.map((candidate) => {
+    const duplicateSuggestion = findDuplicateSuggestion(candidate, preview)
+    if (!duplicateSuggestion) return candidate
+
+    return {
+      ...candidate,
+      needsReview: true,
+      reviewReasons: Array.from(new Set([...(candidate.reviewReasons ?? []), 'duplicate_possible'])),
+    }
+  })
+}
+
+function findDuplicateSuggestion(
+  candidate: LensCandidate,
+  preview: InventoryMergePreviewDto | null,
+) {
+  if (!preview) return undefined
+  const normalizedName = candidate.name.trim().toLowerCase()
+  return preview.duplicateSuggestions.find((suggestion) =>
+    suggestion.candidateName.trim().toLowerCase() === normalizedName,
+  )
+}
+
+function getCandidateReviewLabels(candidate: LensCandidate): string[] {
+  const labels = new Map([
+    ['low_confidence', '신뢰도 낮음'],
+    ['missing_quantity', '수량 확인'],
+    ['missing_expiry', '기한 확인'],
+    ['ambiguous_name', '이름 확인'],
+    ['duplicate_possible', '중복 확인'],
+  ])
+
+  return (candidate.reviewReasons ?? []).flatMap((reason) => {
+    const label = labels.get(reason)
+    return label ? [label] : []
+  })
 }
 
 async function captureVideoFrame(video: HTMLVideoElement): Promise<File> {

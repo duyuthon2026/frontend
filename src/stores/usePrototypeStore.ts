@@ -62,6 +62,15 @@ export type LensCandidate = {
   quantity: string
   location: StorageLocation
   expiresAt: string
+  needsReview?: boolean
+  reviewReasons?: Array<
+    | 'low_confidence'
+    | 'missing_quantity'
+    | 'missing_expiry'
+    | 'ambiguous_name'
+    | 'duplicate_possible'
+  >
+  sourceText?: string
 }
 
 export type PersistedPrototypeState = {
@@ -116,7 +125,7 @@ const findRecipeAvatar = (name: string) => {
     .flatMap((recipe) => recipe.ingredients)
     .find((ingredient) => ingredient.name.toLowerCase() === normalizedName)
 
-  return knownIngredient?.avatar ?? '🍽️'
+  return knownIngredient?.avatar ?? 'restaurant'
 }
 
 const normalizePersistedIngredient = (value: unknown): RecipeIngredient | null => {
@@ -157,6 +166,9 @@ const normalizePersistedRecipe = (value: unknown): RecipeCard | null => {
     id: value.id,
     name: value.name,
     ingredients,
+    recommendationReasons: Array.isArray(value.recommendationReasons)
+      ? value.recommendationReasons.filter((reason): reason is string => typeof reason === 'string')
+      : undefined,
     saved: typeof value.saved === 'boolean' ? value.saved : false,
     time: isNonEmptyString(value.time) ? value.time : '15분',
   }
@@ -517,7 +529,9 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
         const nextSaved = !get().recipes.find((recipe) => recipe.id === recipeId)?.saved
         const recipe = await saveRecipe(recipeId, nextSaved)
         set((state) => ({
-          recipes: state.recipes.map((existing) => existing.id === recipeId ? recipe : existing),
+          recipes: state.recipes.map((existing) => existing.id === recipeId
+            ? { ...recipe, recommendationReasons: existing.recommendationReasons }
+            : existing),
         }))
       })
     },

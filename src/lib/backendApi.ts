@@ -23,9 +23,35 @@ type InventoryCreateDto = Omit<InventoryItem, 'id'> & {
 }
 
 type InventoryBatchResultDto = {
-  duplicateSuggestions?: Array<{ candidateName: string; existingItemId: string }>
+  duplicateSuggestions?: DuplicateSuggestionDto[]
   idMap?: Record<string, string>
   items: InventoryItemDto[]
+}
+
+export type DuplicateSuggestionDto = {
+  candidateName: string
+  confidence: number
+  existingItemId: string
+  existingName: string
+  reason: 'same_name' | 'similar_name' | 'same_normalized_name'
+  recommendation?: string
+}
+
+export type InventoryMergeCandidateDto = Omit<InventoryItem, 'id'> & {
+  candidateId?: string
+}
+
+export type InventoryMergePreviewDto = {
+  candidates: InventoryMergeCandidateDto[]
+  duplicateSuggestions: DuplicateSuggestionDto[]
+  mergeGroups: Array<{
+    candidateName: string
+    existingItemId: string
+    existingName: string
+    recommendation: string
+    suggestedExpiresAt: string
+    suggestedQuantity: string
+  }>
 }
 
 type InventorySelectionDto = {
@@ -41,6 +67,7 @@ type RecipeDto = RecipeCard & {
 
 type RecipeRecommendationDto = {
   recipe: RecipeDto
+  reasons?: string[]
 }
 
 type RecipeConsumeResultDto = {
@@ -61,6 +88,8 @@ type LensAnalyzeResponseDto = {
   source: 'camera' | 'upload' | 'simulator' | 'natural_text'
   status: 'completed' | 'needs_review'
 }
+
+export type LensImageMode = 'fridge' | 'receipt'
 
 type PushSubscriptionRecordDto = {
   id: string
@@ -118,6 +147,126 @@ type VapidPublicKeyDto = {
   publicKey: string
 }
 
+export type NotificationPreferenceDto = {
+  expiryReminderDaysBefore: number[]
+  expiryReminderEnabled: boolean
+  expiryReminderTime: string
+  quietHours?: { end: string; start: string }
+  recipeConsumeReminderEnabled: boolean
+  recommendationReason: string
+  recommendedTime: string
+  reviewPendingReminderEnabled: boolean
+}
+
+export type NotificationPreviewDto = {
+  generatedAt: string
+  items: Array<{
+    bucket: 'today' | 'overdue' | 'soon'
+    daysLeft: number
+    expiresAt: string
+    id: string
+    name: string
+  }>
+  nextNotifications: Array<{
+    body: string
+    scheduledLocalTime: string
+    tag: string
+    title: string
+    type: 'expiry_reminder' | 'expiry_overdue' | 'today_summary' | 'review_pending'
+    url: string
+  }>
+  recommendedTime: string
+  summary: {
+    body: string
+    needsReviewCount: number
+    overdueCount: number
+    soonCount: number
+    title: string
+    todayCount: number
+  }
+}
+
+export type NotificationDispatchResultDto = {
+  dryRun: boolean
+  failed: number
+  inactiveIds: string[]
+  payloads: Array<{ body?: string; tag?: string; title?: string; url?: string }>
+  queued: true
+  sent: number
+}
+
+export type SpoilageRiskDto = {
+  daysLeft: number
+  level: 'low' | 'medium' | 'high' | 'critical'
+  reasons: string[]
+  recommendation: string
+  score: number
+}
+
+export type SpoilageWeatherContextDto = {
+  freshnessWindowAdjustmentDays: number
+  locationLabel: string
+  observedAt: string
+  recommendation: string
+  relativeHumidity: number
+  riskLevel: 'normal' | 'elevated' | 'high'
+  season: 'spring' | 'summer' | 'autumn' | 'winter'
+  source: 'open_meteo' | 'seasonal_fallback'
+  temperatureC: number
+}
+
+export type InventorySpoilageRiskReportDto = {
+  generatedAt: string
+  items: Array<{
+    item: InventoryItem
+    spoilageRisk: SpoilageRiskDto
+    weatherImpact: {
+      adjustedDaysLeft: number
+      reasons: string[]
+      recommendation: string
+      scoreDelta: number
+    }
+  }>
+  summary: {
+    body: string
+    criticalRiskCount: number
+    highRiskCount: number
+    title: string
+    totalItemsCount: number
+    weatherRiskLevel: SpoilageWeatherContextDto['riskLevel']
+  }
+  weather: SpoilageWeatherContextDto
+}
+
+export type SpoilageRiskDispatchResultDto = NotificationDispatchResultDto & {
+  householdsNotified: number
+  householdsScanned: number
+}
+
+export type RecipePreferenceDto = {
+  allergies: string[]
+  dislikedFoods: string[]
+  excludedIngredients: string[]
+  mildFlavorPreferred?: boolean
+  preferredCookTimeMinutes?: number
+  recentMeals: Array<{
+    consumedAt: string
+    id: string
+    recipeId: string
+    recipeName: string
+  }>
+}
+
+export type RecipePreferenceUpdateDto = Partial<{
+  allergies: string[]
+  dislikedFoods: string[]
+  excludedIngredients: string[]
+  mildFlavorPreferred: boolean | null
+  preferredCookTimeMinutes: number | null
+}>
+
+export type RecipeFeedbackAction = 'cooked' | 'not_today' | 'disliked'
+
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
 export function canUseBackendApi({
@@ -159,8 +308,15 @@ export async function createInventoryItemsBatch(
   source: InventoryCreateDto['source'] = 'lens_text',
 ): Promise<InventoryItem[]> {
   const idempotencyKey = createClientRequestId('inventory-batch')
+  const sanitizedItems = items.map((item) => ({
+    clientRequestId: item.clientRequestId,
+    expiresAt: item.expiresAt,
+    location: item.location,
+    name: item.name,
+    quantity: item.quantity,
+  }))
   const result = await apiJson('/api/v1/inventory/batch', {
-    body: JSON.stringify({ items, source }),
+    body: JSON.stringify({ items: sanitizedItems, source }),
     headers: withIdempotencyHeaders(idempotencyKey),
     method: 'POST',
   }) as InventoryBatchResultDto
@@ -170,6 +326,20 @@ export async function createInventoryItemsBatch(
   }
 
   return result.items.map(toInventoryItem)
+}
+
+export async function previewInventoryMergeCandidates(
+  candidates: InventoryMergeCandidateDto[],
+): Promise<InventoryMergePreviewDto> {
+  return await apiJson('/api/v1/inventory/merge-candidates', {
+    body: JSON.stringify({ candidates }),
+    headers: jsonHeaders,
+    method: 'POST',
+  }) as InventoryMergePreviewDto
+}
+
+export async function fetchInventorySpoilageRisks(): Promise<InventorySpoilageRiskReportDto> {
+  return await apiJson('/api/v1/inventory/spoilage-risks') as InventorySpoilageRiskReportDto
 }
 
 export async function deleteInventoryItem(itemId: string): Promise<void> {
@@ -182,6 +352,19 @@ export async function updateInventoryItem(
 ): Promise<InventoryItem> {
   const updated = await apiJson(`/api/v1/inventory/${encodeURIComponent(itemId)}`, {
     body: JSON.stringify(patch),
+    headers: jsonHeaders,
+    method: 'PATCH',
+  }) as InventoryItemDto
+  return toInventoryItem(updated)
+}
+
+export async function updateInventoryReviewState(
+  itemId: string,
+  reviewState: 'needs_review' | 'confirmed',
+  reasons: LensCandidate['reviewReasons'] = [],
+): Promise<InventoryItem> {
+  const updated = await apiJson(`/api/v1/inventory/${encodeURIComponent(itemId)}/review-state`, {
+    body: JSON.stringify({ reviewState, reasons }),
     headers: jsonHeaders,
     method: 'PATCH',
   }) as InventoryItemDto
@@ -205,8 +388,8 @@ export async function saveInventorySelection(selectedIngredientIds: string[]): P
 export async function fetchRecipes(selectedIngredientIds: string[] = []): Promise<RecipeCard[]> {
   const params = new URLSearchParams({ limit: '100', mode: 'recommend' })
   for (const id of selectedIngredientIds) params.append('selectedIngredientIds', id)
-  const page = await apiJson(`/api/v1/recipes?${params.toString()}`) as PageDto<RecipeRecommendationDto>
-  return page.data.map(({ recipe }) => toRecipeCard(recipe))
+  const page = await apiJson(`/api/v1/recipes/recommendations?${params.toString()}`) as PageDto<RecipeRecommendationDto>
+  return page.data.map(({ recipe, reasons }) => toRecipeCard(recipe, reasons))
 }
 
 export async function saveRecipe(recipeId: string, saved: boolean): Promise<RecipeCard> {
@@ -216,6 +399,18 @@ export async function saveRecipe(recipeId: string, saved: boolean): Promise<Reci
     method: 'PUT',
   }) as RecipeDto
   return toRecipeCard(recipe)
+}
+
+export async function sendRecipeFeedback(
+  recipeId: string,
+  action: RecipeFeedbackAction,
+  ingredientNames: string[] = [],
+): Promise<void> {
+  await apiJson(`/api/v1/recipes/${encodeURIComponent(recipeId)}/feedback`, {
+    body: JSON.stringify({ action, ingredientNames }),
+    headers: withIdempotencyHeaders(createClientRequestId(`recipe-feedback-${recipeId}-${action}`)),
+    method: 'POST',
+  })
 }
 
 export async function consumeRecipeOnBackend(
@@ -239,7 +434,7 @@ export async function analyzeLensText(text: string): Promise<LensAnalyzeResponse
 
 export async function analyzeLensImage(
   image: File,
-  metadata: { maxCandidates?: number; source?: 'camera' | 'upload' | 'simulator' } = {},
+  metadata: { maxCandidates?: number; mode?: LensImageMode; source?: 'camera' | 'upload' | 'simulator' } = {},
 ): Promise<LensAnalyzeResponseDto> {
   const body = new FormData()
   body.set('image', image)
@@ -249,7 +444,8 @@ export async function analyzeLensImage(
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   }))
 
-  return await apiJson('/api/v1/lens/analyze-image', {
+  const path = metadata.mode ? `/api/v1/lens/${metadata.mode}` : '/api/v1/lens/analyze-image'
+  return await apiJson(path, {
     body,
     headers: withIdempotencyHeaders(createClientRequestId('lens-image'), false),
     method: 'POST',
@@ -286,6 +482,40 @@ export async function sendBackendTestPush(): Promise<PushTestResultDto> {
   }) as PushTestResultDto
 }
 
+export async function fetchNotificationPreferences(): Promise<NotificationPreferenceDto> {
+  return await apiJson('/api/v1/notifications/preferences') as NotificationPreferenceDto
+}
+
+export async function updateNotificationPreferences(
+  preferences: Partial<NotificationPreferenceDto>,
+): Promise<NotificationPreferenceDto> {
+  return await apiJson('/api/v1/notifications/preferences', {
+    body: JSON.stringify(preferences),
+    headers: jsonHeaders,
+    method: 'PUT',
+  }) as NotificationPreferenceDto
+}
+
+export async function fetchNotificationPreview(): Promise<NotificationPreviewDto> {
+  return await apiJson('/api/v1/notifications/preview') as NotificationPreviewDto
+}
+
+export async function sendDueNotifications(dryRun = false): Promise<NotificationDispatchResultDto> {
+  return await apiJson('/api/v1/notifications/send-due', {
+    body: JSON.stringify({ dryRun }),
+    headers: withIdempotencyHeaders(createClientRequestId('notification-send-due')),
+    method: 'POST',
+  }) as NotificationDispatchResultDto
+}
+
+export async function sendSpoilageRiskNotifications(dryRun = false): Promise<SpoilageRiskDispatchResultDto> {
+  return await apiJson('/api/v1/notifications/send-spoilage-risk', {
+    body: JSON.stringify({ dryRun }),
+    headers: withIdempotencyHeaders(createClientRequestId('notification-spoilage-risk')),
+    method: 'POST',
+  }) as SpoilageRiskDispatchResultDto
+}
+
 export async function importPrototypeState(
   state: PrototypeImportState,
   strategy: 'merge' | 'replace_if_empty' | 'dry_run' = 'replace_if_empty',
@@ -316,6 +546,20 @@ export async function updateClientPreferences(
     headers: jsonHeaders,
     method: 'PATCH',
   }) as ClientPreferenceDto
+}
+
+export async function fetchRecipePreferences(): Promise<RecipePreferenceDto> {
+  return await apiJson('/api/v1/me/recipe-preferences') as RecipePreferenceDto
+}
+
+export async function updateRecipePreferences(
+  preferences: RecipePreferenceUpdateDto,
+): Promise<RecipePreferenceDto> {
+  return await apiJson('/api/v1/me/recipe-preferences', {
+    body: JSON.stringify(preferences),
+    headers: jsonHeaders,
+    method: 'PUT',
+  }) as RecipePreferenceDto
 }
 
 function createClientRequestId(scope: string): string {
@@ -369,11 +613,12 @@ function toInventoryItem(item: InventoryItemDto): InventoryItem {
   }
 }
 
-function toRecipeCard(recipe: RecipeDto): RecipeCard {
+function toRecipeCard(recipe: RecipeDto, recommendationReasons: string[] = []): RecipeCard {
   return {
     id: recipe.id,
     ingredients: recipe.ingredients,
     name: recipe.name,
+    recommendationReasons,
     saved: recipe.saved,
     time: recipe.time,
   }
