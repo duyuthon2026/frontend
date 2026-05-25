@@ -23,10 +23,13 @@ test('binds frontend inventory, selection, recipes, and lens text to backend API
 
   await page.getByRole('button', { name: '보관함' }).click()
   await page.getByRole('button', { name: '재료 추가' }).click()
+  await expect(page.getByRole('dialog', { name: '새로운 식재료 직접 등록' })).toBeVisible()
   await page.getByLabel('재료 이름').fill(itemName)
   await page.getByLabel('수량').fill('2')
   await page.getByLabel('소비기한').fill(futureDate)
-  await page.getByRole('button', { name: '보관함에 추가' }).click()
+  await page.getByRole('dialog', { name: '새로운 식재료 직접 등록' })
+    .locator('form')
+    .evaluate((form: { requestSubmit: () => void }) => form.requestSubmit())
   await expect(page.getByText(itemName)).toBeVisible()
   await page.getByRole('button', { name: `${itemName} 선택`, exact: true }).click()
 
