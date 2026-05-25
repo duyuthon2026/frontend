@@ -270,6 +270,13 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
     }
   }
 
+  const refreshRecipesForSelection = async (selectedIngredientIds: string[]) => {
+    const recipes = await fetchRecipes(selectedIngredientIds)
+    if (hasSameStringOrder(get().selectedIngredientIds, selectedIngredientIds)) {
+      set({ recipes })
+    }
+  }
+
   const consumeRecipeLocally = (recipeId: string) => {
     set({ recipeConsumeReviewMessage: null })
     set((state) => {
@@ -403,6 +410,7 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
       return runBackendMutation(async () => {
         const created = await createInventoryItem(item)
         set((state) => ({ items: [...state.items, created] }))
+        await refreshRecipesForSelection(get().selectedIngredientIds)
       })
     },
 
@@ -424,6 +432,7 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
           })),
         )
         set((state) => ({ items: [...state.items, ...createdItems] }))
+        await refreshRecipesForSelection(get().selectedIngredientIds)
       })
     },
 
@@ -461,6 +470,7 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
         set((state) => ({
           items: state.items.map((item) => item.id === id ? nextItem : item),
         }))
+        await refreshRecipesForSelection(get().selectedIngredientIds)
       })
     },
 
@@ -488,6 +498,7 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
             : null,
           selectedIngredientIds: result.selectedIngredientIds,
         })
+        await refreshRecipesForSelection(result.selectedIngredientIds)
       })
     },
 

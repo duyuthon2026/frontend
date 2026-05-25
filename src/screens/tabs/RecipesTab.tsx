@@ -49,23 +49,24 @@ export function RecipesTab() {
   const [activeConditions, setActiveConditions] = useState<string[]>([])
 
   const selectedRecipe = recipes.find((r) => r.id === selectedRecipeId)
+  const hasScopedIngredients = selectedIngredientIds.length > 0
+  const selectedIdSet = new Set(selectedIngredientIds)
+  const recipeScopeItems = hasScopedIngredients
+    ? items.filter((item) => selectedIdSet.has(item.id))
+    : items
 
   const analyzeRecipeIngredients = (recipe: RecipeCard) => {
-    const ownedItems = items
-    const selectedIds = new Set(selectedIngredientIds)
-
     const analysis = recipe.ingredients.map((ing) => {
       const nameLower = ing.name.toLowerCase()
-      const matchingItem = ownedItems.find((item) => {
+      const matchingItem = recipeScopeItems.find((item) => {
         const itemLower = item.name.toLowerCase()
         return itemLower.includes(nameLower) || nameLower.includes(itemLower)
       })
 
       if (matchingItem) {
-        const isSelected = selectedIds.has(matchingItem.id)
         return {
           ...ing,
-          status: isSelected ? 'selected' : 'owned',
+          status: hasScopedIngredients ? 'selected' : 'owned',
           itemId: matchingItem.id,
         }
       } else {
@@ -113,7 +114,7 @@ export function RecipesTab() {
         }
         if (cond === '임박 식재료 최우선') {
           const recipeIngredients = recipe.ingredients.map((i) => i.name.toLowerCase())
-          const soonIngredients = items
+          const soonIngredients = recipeScopeItems
             .filter((i) => {
               const dl = calculateDaysLeft(i.expiresAt)
               return dl >= 0 && dl <= 2
@@ -154,6 +155,15 @@ export function RecipesTab() {
     setIsCompleted(false)
   }
 
+  const handleToggleRecipeScopeItem = (itemId: string) => {
+    if (!canUseBackendAccount) return
+    if (hasScopedIngredients) {
+      void toggleSelectedIngredientId(itemId)
+      return
+    }
+    void setSelectedIngredientIds([itemId])
+  }
+
   const toggleCondition = (cond: string) => {
     if (activeConditions.includes(cond)) {
       setActiveConditions(activeConditions.filter((c) => c !== cond))
@@ -163,6 +173,9 @@ export function RecipesTab() {
   }
 
   const selectedItems = items.filter((item) => selectedIngredientIds.includes(item.id))
+  const recipeScopeLabel = hasScopedIngredients
+    ? `선택한 재료 ${selectedItems.length}개만 사용`
+    : '전체 보유 재료 사용'
 
   return (
     <div className="grid gap-5">
@@ -235,38 +248,45 @@ export function RecipesTab() {
         )}
       </AnimatePresence>
 
-      {selectedItems.length > 0 && (
+      {items.length > 0 && (
         <section className="grid gap-2 bg-[var(--color-bg-overlay)] border border-[var(--color-border-default)] p-3.5 rounded-2xl shadow-[var(--shadow-glass)]">
           <div className="flex items-center justify-between">
             <span className="text-[0.72rem] font-black uppercase tracking-wider text-[var(--color-secondary)] dark:text-[var(--color-tertiary)]">
-              선택한 식재료 매칭 중 ({selectedItems.length}개)
+              레시피 접근 재료 · {recipeScopeLabel}
             </span>
             <button
               type="button"
               onClick={() => {
                 if (canUseBackendAccount) void setSelectedIngredientIds([])
               }}
-              disabled={!canUseBackendAccount}
+              disabled={!canUseBackendAccount || !hasScopedIngredients}
               className="text-[0.7rem] font-bold text-[var(--color-error)] hover:underline border-0 bg-transparent cursor-pointer disabled:cursor-not-allowed disabled:opacity-55"
             >
-              선택 해제
+              전체 사용
             </button>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {selectedItems.map((item) => (
+            {items.map((item) => {
+              const isScoped = selectedIdSet.has(item.id)
+              return (
               <button
                 type="button"
                 key={item.id}
-                onClick={() => {
-                  if (canUseBackendAccount) void toggleSelectedIngredientId(item.id)
-                }}
+                onClick={() => handleToggleRecipeScopeItem(item.id)}
+                aria-pressed={isScoped}
                 disabled={!canUseBackendAccount}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--color-surface-brand-soft)] border border-[var(--color-border-brand)] text-[0.74rem] font-bold text-[var(--color-content-brand)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-55"
+                className={cn(
+                  'flex min-h-8 items-center gap-1 rounded-full border px-2.5 py-1 text-[0.74rem] font-bold cursor-pointer disabled:cursor-not-allowed disabled:opacity-55',
+                  isScoped
+                    ? 'border-[var(--color-border-brand)] bg-[var(--color-surface-brand-soft)] text-[var(--color-content-brand)]'
+                    : 'border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[var(--color-content-muted)] hover:border-[var(--color-border-brand)] hover:text-[var(--color-content-default)]',
+                )}
               >
                 <span>{item.name}</span>
-                <span className="text-[0.64rem] opacity-60">×</span>
+                {isScoped && <span className="text-[0.64rem] opacity-60">×</span>}
               </button>
-            ))}
+              )
+            })}
           </div>
         </section>
       )}
