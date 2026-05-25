@@ -195,6 +195,54 @@ export type NotificationDispatchResultDto = {
   sent: number
 }
 
+export type SpoilageRiskDto = {
+  daysLeft: number
+  level: 'low' | 'medium' | 'high' | 'critical'
+  reasons: string[]
+  recommendation: string
+  score: number
+}
+
+export type SpoilageWeatherContextDto = {
+  freshnessWindowAdjustmentDays: number
+  locationLabel: string
+  observedAt: string
+  recommendation: string
+  relativeHumidity: number
+  riskLevel: 'normal' | 'elevated' | 'high'
+  season: 'spring' | 'summer' | 'autumn' | 'winter'
+  source: 'open_meteo' | 'seasonal_fallback'
+  temperatureC: number
+}
+
+export type InventorySpoilageRiskReportDto = {
+  generatedAt: string
+  items: Array<{
+    item: InventoryItem
+    spoilageRisk: SpoilageRiskDto
+    weatherImpact: {
+      adjustedDaysLeft: number
+      reasons: string[]
+      recommendation: string
+      scoreDelta: number
+    }
+  }>
+  summary: {
+    body: string
+    criticalRiskCount: number
+    highRiskCount: number
+    title: string
+    totalItemsCount: number
+    weatherRiskLevel: SpoilageWeatherContextDto['riskLevel']
+  }
+  weather: SpoilageWeatherContextDto
+}
+
+export type SpoilageRiskDispatchResultDto = NotificationDispatchResultDto & {
+  householdsNotified: number
+  householdsScanned: number
+}
+
 export type RecipePreferenceDto = {
   allergies: string[]
   dislikedFoods: string[]
@@ -288,6 +336,10 @@ export async function previewInventoryMergeCandidates(
     headers: jsonHeaders,
     method: 'POST',
   }) as InventoryMergePreviewDto
+}
+
+export async function fetchInventorySpoilageRisks(): Promise<InventorySpoilageRiskReportDto> {
+  return await apiJson('/api/v1/inventory/spoilage-risks') as InventorySpoilageRiskReportDto
 }
 
 export async function deleteInventoryItem(itemId: string): Promise<void> {
@@ -454,6 +506,14 @@ export async function sendDueNotifications(dryRun = false): Promise<Notification
     headers: withIdempotencyHeaders(createClientRequestId('notification-send-due')),
     method: 'POST',
   }) as NotificationDispatchResultDto
+}
+
+export async function sendSpoilageRiskNotifications(dryRun = false): Promise<SpoilageRiskDispatchResultDto> {
+  return await apiJson('/api/v1/notifications/send-spoilage-risk', {
+    body: JSON.stringify({ dryRun }),
+    headers: withIdempotencyHeaders(createClientRequestId('notification-spoilage-risk')),
+    method: 'POST',
+  }) as SpoilageRiskDispatchResultDto
 }
 
 export async function importPrototypeState(

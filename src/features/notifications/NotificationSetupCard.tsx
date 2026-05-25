@@ -16,6 +16,7 @@ import {
   registerPushSubscription,
   sendBackendTestPush,
   sendDueNotifications,
+  sendSpoilageRiskNotifications,
   shouldUseBackendApi,
   updateNotificationPreferences,
   type NotificationPreferenceDto,
@@ -28,6 +29,7 @@ export function NotificationSetupCard() {
   const [isTestingNotification, setIsTestingNotification] = useState(false)
   const [isSavingPreferences, setIsSavingPreferences] = useState(false)
   const [isSendingDueNotification, setIsSendingDueNotification] = useState(false)
+  const [isSendingSpoilageNotification, setIsSendingSpoilageNotification] = useState(false)
   const [isLoadingPushConfig, setIsLoadingPushConfig] = useState(() => shouldUseBackendApi())
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferenceDto | null>(null)
   const [notificationPreview, setNotificationPreview] = useState<NotificationPreviewDto | null>(null)
@@ -254,6 +256,27 @@ export function NotificationSetupCard() {
     }
   }
 
+  const handleSendSpoilageNotification = async () => {
+    if (!canUseBackendAccount) return
+    setIsSendingSpoilageNotification(true)
+    setNotificationPreferenceMessage(null)
+
+    try {
+      const result = await sendSpoilageRiskNotifications(false)
+      setNotificationPreferenceMessage(
+        result.sent > 0
+          ? `부패 위험 알림 ${result.sent}건 발송 완료`
+          : result.householdsNotified > 0
+            ? '부패 위험 알림 대상은 있으나 활성 구독이 없습니다.'
+            : '현재 발송할 부패 고위험 재료가 없습니다.',
+      )
+    } catch (error) {
+      setNotificationPreferenceMessage(error instanceof Error ? error.message : '부패 위험 알림 발송 실패')
+    } finally {
+      setIsSendingSpoilageNotification(false)
+    }
+  }
+
   return (
     <Panel
       className="gap-4"
@@ -367,6 +390,14 @@ export function NotificationSetupCard() {
         onClick={() => void handleSendDueNotification()}
       >
         {isSendingDueNotification ? '요약 발송 중' : '오늘 먹어야 할 재료 알림 보내기'}
+      </button>
+      <button
+        type="button"
+        className="flex min-h-10 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-4 text-[0.78rem] font-bold text-[var(--color-content-default)] transition-all hover:border-[var(--color-border-brand)] disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={isSendingSpoilageNotification || !canUseBackendAccount}
+        onClick={() => void handleSendSpoilageNotification()}
+      >
+        {isSendingSpoilageNotification ? '위험 알림 발송 중' : '부패 위험 알림 보내기'}
       </button>
       {notificationPreferenceMessage && (
         <p className="m-0 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 py-2 text-[0.72rem] font-bold text-[var(--color-content-muted)]">
