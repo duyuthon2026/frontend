@@ -7,6 +7,7 @@ import { AccountRequiredCard } from '../../features/auth/AuthSession'
 import { useAuthSession } from '../../features/auth/authSessionContext'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
 import { cn } from '../../lib/cn'
+import { sendRecipeFeedback, shouldUseBackendApi, type RecipeFeedbackAction } from '../../lib/backendApi'
 import { calculateDaysLeft, type RecipeCard } from '../../domain/prototype'
 
 type FilterMode = 'recommend' | 'saved'
@@ -47,6 +48,9 @@ export function RecipesTab() {
   const [isCompleted, setIsCompleted] = useState(false)
   const [showConditions, setShowConditions] = useState(false)
   const [activeConditions, setActiveConditions] = useState<string[]>([])
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
+  const [isSendingFeedback, setIsSendingFeedback] = useState(false)
+  const [suppressedRecipeIds, setSuppressedRecipeIds] = useState<string[]>([])
 
   const selectedRecipe = recipes.find((r) => r.id === selectedRecipeId)
   const hasScopedIngredients = selectedIngredientIds.length > 0
@@ -93,6 +97,7 @@ export function RecipesTab() {
   }
 
   const displayedRecipes = recipes.filter((recipe) => {
+    if (suppressedRecipeIds.includes(recipe.id)) return false
     if (filterMode === 'saved' && !recipe.saved) return false
     const matchInfo = analyzeRecipeIngredients(recipe)
 
@@ -129,7 +134,9 @@ export function RecipesTab() {
     return true
   })
 
-  const sortedRecipes = [...displayedRecipes].sort((a, b) => {
+  const sortedRecipes = displayedRecipes.some((recipe) => recipe.recommendationReasons?.length)
+    ? displayedRecipes
+    : [...displayedRecipes].sort((a, b) => {
     const analysisA = analyzeRecipeIngredients(a)
     const analysisB = analyzeRecipeIngredients(b)
     if (analysisA.selectedCount !== analysisB.selectedCount) {
@@ -150,9 +157,35 @@ export function RecipesTab() {
     setIsCompleted(true)
   }
 
+  const handleRecipeFeedback = async (action: RecipeFeedbackAction) => {
+    if (!canUseBackendAccount || !selectedRecipe) return
+    setIsSendingFeedback(true)
+    setFeedbackMessage(null)
+
+    try {
+      if (shouldUseBackendApi()) {
+        await sendRecipeFeedback(
+          selectedRecipe.id,
+          action,
+          action === 'disliked' ? selectedRecipe.ingredients.map((ingredient) => ingredient.name) : [],
+        )
+        await setSelectedIngredientIds(selectedIngredientIds)
+      }
+      if (action === 'not_today') {
+        setSuppressedRecipeIds((ids) => [selectedRecipe.id, ...ids.filter((id) => id !== selectedRecipe.id)])
+      }
+      setFeedbackMessage(action === 'disliked' ? '취향 제외에 반영했습니다.' : '이번 추천에서 뒤로 보내도록 기록했습니다.')
+    } catch (error) {
+      setFeedbackMessage(error instanceof Error ? error.message : '레시피 피드백 저장 실패')
+    } finally {
+      setIsSendingFeedback(false)
+    }
+  }
+
   const handleCloseSheet = () => {
     setSelectedRecipeId(null)
     setIsCompleted(false)
+    setFeedbackMessage(null)
   }
 
   const handleToggleRecipeScopeItem = (itemId: string) => {
@@ -377,6 +410,18 @@ export function RecipesTab() {
                   <strong className="text-[1.02rem] font-extrabold text-[var(--color-content-default)] leading-tight">
                     {recipe.name}
                   </strong>
+                  {recipe.recommendationReasons?.length ? (
+                    <div className="flex flex-wrap gap-1">
+                      {recipe.recommendationReasons.slice(0, 3).map((reason) => (
+                        <span
+                          key={reason}
+                          className="rounded-md bg-[var(--color-surface-brand-soft)] px-2 py-0.5 text-[0.66rem] font-black text-[var(--color-content-brand)]"
+                        >
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap gap-1.5 mt-1">
                     {recipe.ingredients.map((ing, idx) => {
                       const analysis = matchInfo.ingredients[idx]
@@ -437,6 +482,19 @@ export function RecipesTab() {
                     </span>
                   </div>
 
+                  {selectedRecipe.recommendationReasons?.length ? (
+                    <div className="flex flex-wrap gap-1">
+                      {selectedRecipe.recommendationReasons.slice(0, 4).map((reason) => (
+                        <span
+                          key={reason}
+                          className="rounded-md bg-[var(--color-surface-brand-soft)] px-2 py-1 text-[0.68rem] font-black text-[var(--color-content-brand)]"
+                        >
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
                   <div className="grid gap-2 bg-[var(--color-bg-base)] p-4 rounded-xl border border-[var(--color-border-default)]">
                     <span className="text-[0.7rem] font-bold text-[var(--color-content-muted)]">소요 식재료 리스트</span>
                     <div className="grid gap-1.5 mt-1">
@@ -494,6 +552,29 @@ export function RecipesTab() {
                       요리 완료 (재료 차감)
                     </button>
                   </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleRecipeFeedback('not_today')}
+                      disabled={!canUseBackendAccount || isSendingFeedback}
+                      className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.78rem] font-bold text-[var(--color-content-default)] disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      오늘 제외
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleRecipeFeedback('disliked')}
+                      disabled={!canUseBackendAccount || isSendingFeedback}
+                      className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.78rem] font-bold text-[var(--color-content-default)] disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      취향 아님
+                    </button>
+                  </div>
+                  {feedbackMessage && (
+                    <p className="m-0 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 py-2 text-[0.72rem] font-bold text-[var(--color-content-muted)]">
+                      {feedbackMessage}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="grid gap-5 text-center justify-items-center">

@@ -10,17 +10,28 @@ import {
 import { AccountRequiredCard } from '../auth/AuthSession'
 import { useAuthSession } from '../auth/authSessionContext'
 import {
+  fetchNotificationPreferences,
+  fetchNotificationPreview,
   fetchVapidPublicKey,
   registerPushSubscription,
   sendBackendTestPush,
+  sendDueNotifications,
   shouldUseBackendApi,
+  updateNotificationPreferences,
+  type NotificationPreferenceDto,
+  type NotificationPreviewDto,
   type PushTestResultDto,
 } from '../../lib/backendApi'
 import { useDeviceStore } from '../../stores/useDeviceStore'
 
 export function NotificationSetupCard() {
   const [isTestingNotification, setIsTestingNotification] = useState(false)
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false)
+  const [isSendingDueNotification, setIsSendingDueNotification] = useState(false)
   const [isLoadingPushConfig, setIsLoadingPushConfig] = useState(() => shouldUseBackendApi())
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferenceDto | null>(null)
+  const [notificationPreview, setNotificationPreview] = useState<NotificationPreviewDto | null>(null)
+  const [notificationPreferenceMessage, setNotificationPreferenceMessage] = useState<string | null>(null)
   const [vapidPublicKey, setVapidPublicKey] = useState(
     () => import.meta.env.VITE_VAPID_PUBLIC_KEY?.trim() ?? '',
   )
@@ -91,6 +102,30 @@ export function NotificationSetupCard() {
     setNotificationState('unsupported', pushPreflight.message)
   }, [notificationStatus, pushPreflight, setNotificationState])
 
+  useEffect(() => {
+    if (!canUseBackendAccount || !shouldUseBackendApi()) {
+      return undefined
+    }
+
+    let isCancelled = false
+    Promise.all([fetchNotificationPreferences(), fetchNotificationPreview()])
+      .then(([preferences, preview]) => {
+        if (isCancelled) return
+        setNotificationPreferences(preferences)
+        setNotificationPreview(preview)
+      })
+      .catch((error) => {
+        if (isCancelled) return
+        setNotificationPreferenceMessage(
+          error instanceof Error ? error.message : '알림 설정을 불러오지 못했습니다.',
+        )
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [canUseBackendAccount])
+
   const handleEnablePush = async () => {
     if (!canUseBackendAccount) return
     setNotificationState('checking', '알림 권한 요청 중')
@@ -158,6 +193,67 @@ export function NotificationSetupCard() {
     }
   }
 
+  const handleSaveReminderTime = async (expiryReminderTime: string) => {
+    if (!canUseBackendAccount || !notificationPreferences) return
+    setIsSavingPreferences(true)
+    setNotificationPreferenceMessage(null)
+
+    try {
+      const updated = await updateNotificationPreferences({ expiryReminderTime })
+      const preview = await fetchNotificationPreview()
+      setNotificationPreferences(updated)
+      setNotificationPreview(preview)
+      setNotificationPreferenceMessage('알림 시간이 저장되었습니다.')
+    } catch (error) {
+      setNotificationPreferenceMessage(error instanceof Error ? error.message : '알림 설정 저장 실패')
+    } finally {
+      setIsSavingPreferences(false)
+    }
+  }
+
+  const handleToggleExpiryReminder = async () => {
+    if (!canUseBackendAccount || !notificationPreferences) return
+    setIsSavingPreferences(true)
+    setNotificationPreferenceMessage(null)
+
+    try {
+      const updated = await updateNotificationPreferences({
+        expiryReminderEnabled: !notificationPreferences.expiryReminderEnabled,
+      })
+      const preview = await fetchNotificationPreview()
+      setNotificationPreferences(updated)
+      setNotificationPreview(preview)
+      setNotificationPreferenceMessage(updated.expiryReminderEnabled ? '소비기한 알림이 켜졌습니다.' : '소비기한 알림이 꺼졌습니다.')
+    } catch (error) {
+      setNotificationPreferenceMessage(error instanceof Error ? error.message : '알림 설정 저장 실패')
+    } finally {
+      setIsSavingPreferences(false)
+    }
+  }
+
+  const handleSendDueNotification = async () => {
+    if (!canUseBackendAccount) return
+    setIsSendingDueNotification(true)
+    setNotificationPreferenceMessage(null)
+
+    try {
+      const result = await sendDueNotifications(false)
+      setNotificationPreferenceMessage(
+        result.sent > 0
+          ? `요약 알림 ${result.sent}건 발송 완료`
+          : result.payloads.length > 0
+            ? '발송할 알림은 있으나 활성 구독이 없습니다.'
+            : '현재 발송할 임박/확인 알림이 없습니다.',
+      )
+      const preview = await fetchNotificationPreview()
+      setNotificationPreview(preview)
+    } catch (error) {
+      setNotificationPreferenceMessage(error instanceof Error ? error.message : '요약 알림 발송 실패')
+    } finally {
+      setIsSendingDueNotification(false)
+    }
+  }
+
   return (
     <Panel
       className="gap-4"
@@ -174,6 +270,72 @@ export function NotificationSetupCard() {
         <StatusPill label="SW" status={serviceWorkerStatus} />
         <StatusPill label="Push" status={notificationStatus} />
       </div>
+      {notificationPreview && (
+        <div className="grid gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] p-3">
+          <div className="flex items-center justify-between gap-3">
+            <strong className="text-[0.82rem] font-extrabold text-[var(--color-content-default)]">
+              {notificationPreview.summary.title}
+            </strong>
+            <span className="shrink-0 rounded-md bg-[var(--color-surface-brand-soft)] px-2 py-1 text-[0.66rem] font-black text-[var(--color-content-brand)]">
+              {notificationPreview.recommendedTime}
+            </span>
+          </div>
+          <p className="m-0 text-[0.72rem] font-semibold text-[var(--color-content-muted)]">
+            {notificationPreview.summary.body}
+          </p>
+          <div className="grid grid-cols-4 gap-1.5 text-center">
+            {[
+              ['오늘', notificationPreview.summary.todayCount],
+              ['초과', notificationPreview.summary.overdueCount],
+              ['임박', notificationPreview.summary.soonCount],
+              ['확인', notificationPreview.summary.needsReviewCount],
+            ].map(([label, count]) => (
+              <span key={label} className="rounded-lg border border-[var(--color-border-default)] px-2 py-1 text-[0.68rem] font-black text-[var(--color-content-muted)]">
+                {label} {count}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {notificationPreferences && (
+        <div className="grid gap-2 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] p-3">
+          <label className="grid gap-1 text-[0.72rem] font-black text-[var(--color-content-muted)]">
+            알림 시간
+            <input
+              type="time"
+              value={notificationPreferences.expiryReminderTime}
+              onChange={(event) => {
+                setNotificationPreferences({
+                  ...notificationPreferences,
+                  expiryReminderTime: event.target.value,
+                })
+              }}
+              className="min-h-10 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] px-3 text-[0.82rem] text-[var(--color-content-default)]"
+            />
+          </label>
+          <p className="m-0 text-[0.7rem] font-semibold text-[var(--color-content-muted)]">
+            {notificationPreferences.recommendationReason}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => void handleSaveReminderTime(notificationPreferences.expiryReminderTime)}
+              disabled={isSavingPreferences || !canUseBackendAccount}
+              className="min-h-9 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] text-[0.72rem] font-bold text-[var(--color-content-default)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              시간 저장
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleToggleExpiryReminder()}
+              disabled={isSavingPreferences || !canUseBackendAccount}
+              className="min-h-9 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] text-[0.72rem] font-bold text-[var(--color-content-default)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {notificationPreferences.expiryReminderEnabled ? '기한 알림 끄기' : '기한 알림 켜기'}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="grid gap-2.5 sm:grid-cols-2">
         <button
           type="button"
@@ -198,6 +360,19 @@ export function NotificationSetupCard() {
           {isTestingNotification ? '발송 중' : '테스트'}
         </button>
       </div>
+      <button
+        type="button"
+        className="flex min-h-10 items-center justify-center rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-4 text-[0.78rem] font-bold text-[var(--color-content-default)] transition-all hover:border-[var(--color-border-brand)] disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={isSendingDueNotification || !canUseBackendAccount}
+        onClick={() => void handleSendDueNotification()}
+      >
+        {isSendingDueNotification ? '요약 발송 중' : '오늘 먹어야 할 재료 알림 보내기'}
+      </button>
+      {notificationPreferenceMessage && (
+        <p className="m-0 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 py-2 text-[0.72rem] font-bold text-[var(--color-content-muted)]">
+          {notificationPreferenceMessage}
+        </p>
+      )}
       {requiresAccount && (
         <AccountRequiredCard
           actionLabel="푸시 구독과 테스트 알림은 가입 후 서버 계정에 연결됩니다."
