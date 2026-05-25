@@ -116,11 +116,11 @@ export function SwipeableBottomSheet({
         transition={sheetTransition}
         ref={sheetRef}
         className={cn(
-          'fixed inset-x-0 bottom-0 z-50 mx-auto max-h-[88svh] max-w-[520px] overflow-y-auto overscroll-contain rounded-t-3xl border-t border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-6 pb-9 shadow-[0_-8px_32px_rgba(0,0,0,0.15)] backdrop-blur-md',
+          'fixed inset-x-0 bottom-0 z-50 mx-auto grid max-h-[88svh] max-w-[520px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-t-3xl border-t border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] backdrop-blur-md',
           className,
         )}
       >
-        <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <div className="sticky top-0 z-10 grid grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-[var(--color-border-default)] bg-[var(--color-bg-overlay)]/95 px-6 py-3 backdrop-blur-md">
           <span />
           <button
             type="button"
@@ -140,7 +140,9 @@ export function SwipeableBottomSheet({
             닫기
           </button>
         </div>
-        {children}
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-6 pb-[calc(2.25rem+env(safe-area-inset-bottom,0px))] pt-5">
+          {children}
+        </div>
       </motion.div>
     </>
   )

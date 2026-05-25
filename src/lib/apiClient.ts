@@ -1,10 +1,14 @@
 export type ApiFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
+export type ApiAuthTokenProvider = () => Promise<string | null | undefined>
+
 export type ApiFetchOptions = RequestInit & {
   authToken?: string
   baseUrl?: string
   fetchImpl?: ApiFetch
 }
+
+export const apiUnauthorizedEventName = 'janban-zero:api-unauthorized'
 
 export class ApiError extends Error {
   readonly body: string
@@ -12,7 +16,7 @@ export class ApiError extends Error {
   readonly url: string
 
   constructor(status: number, url: string, body: string) {
-    super(`API request failed with ${status}`)
+    super(getApiErrorMessage(status, body))
     this.body = body
     this.name = 'ApiError'
     this.status = status
@@ -20,7 +24,45 @@ export class ApiError extends Error {
   }
 }
 
+function getApiErrorMessage(status: number, body: string): string {
+  const problemDetail = getProblemDetail(body)
+  return problemDetail || `API request failed with ${status}`
+}
+
+function getProblemDetail(body: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return null
+    }
+    const record = parsed as Record<string, unknown>
+    return typeof record.detail === 'string'
+      ? record.detail
+      : typeof record.title === 'string'
+        ? record.title
+        : null
+  } catch {
+    return null
+  }
+}
+
 const sameOriginUrlBase = 'https://janban.local'
+let apiAuthTokenProvider: ApiAuthTokenProvider | undefined
+
+export function setApiAuthTokenProvider(provider: ApiAuthTokenProvider | undefined): void {
+  apiAuthTokenProvider = provider
+}
+
+export function addApiUnauthorizedListener(listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined
+
+  window.addEventListener(apiUnauthorizedEventName, listener)
+  return () => window.removeEventListener(apiUnauthorizedEventName, listener)
+}
+
+export function isApiUnauthorizedError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401
+}
 
 export function getApiBaseUrl(baseUrl = import.meta.env.VITE_API_BASE_URL): string {
   const trimmedBaseUrl = (baseUrl ?? '').trim()
@@ -76,13 +118,14 @@ export async function apiFetch(pathname: string, options: ApiFetchOptions = {}):
   } = options
   const url = resolveApiUrl(pathname, baseUrl)
   const requestHeaders = new Headers(headers)
+  const resolvedAuthToken = authToken ?? await apiAuthTokenProvider?.()
 
   if (!requestHeaders.has('Accept')) {
     requestHeaders.set('Accept', 'application/json')
   }
 
-  if (authToken && !requestHeaders.has('Authorization')) {
-    requestHeaders.set('Authorization', `Bearer ${authToken}`)
+  if (resolvedAuthToken && !requestHeaders.has('Authorization')) {
+    requestHeaders.set('Authorization', `Bearer ${resolvedAuthToken}`)
   }
 
   const response = await fetchImpl(url, {
@@ -92,10 +135,19 @@ export async function apiFetch(pathname: string, options: ApiFetchOptions = {}):
   })
 
   if (!response.ok) {
-    throw new ApiError(response.status, response.url || url, await response.text())
+    const error = new ApiError(response.status, response.url || url, await response.text())
+    if (error.status === 401) {
+      notifyApiUnauthorized()
+    }
+    throw error
   }
 
   return response
+}
+
+function notifyApiUnauthorized(): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new Event(apiUnauthorizedEventName))
 }
 
 export async function apiJson(pathname: string, options: ApiFetchOptions = {}): Promise<unknown> {

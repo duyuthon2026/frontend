@@ -1,5 +1,6 @@
 import { Icon } from '../../components/ui/Icons'
 import { mySettingGroups } from '../../domain/prototype'
+import { AuthBackendStatusCard, AuthProfileCard } from '../../features/auth/AuthControls'
 import { CameraReadinessCard } from '../../features/camera/CameraReadinessCard'
 import { NotificationSetupCard } from '../../features/notifications/NotificationSetupCard'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
@@ -28,19 +29,9 @@ export function MyTab() {
         </p>
       </section>
 
-      <div className="flex items-center gap-4 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-4 shadow-[var(--shadow-glass)]">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--color-primary)] text-[var(--color-on-primary)] shadow-sm">
-          <Icon.User size={22} />
-        </div>
-        <div className="grid gap-0.5">
-          <strong className="text-[0.96rem] font-extrabold text-[var(--color-content-default)]">
-            해커톤 팀 냉장고
-          </strong>
-          <span className="text-[0.76rem] font-bold text-[var(--color-content-muted)]">
-            2인 가구 기준 · 보관 {totalItemsCount}개 · 저장 레시피 {savedRecipesCount}개
-          </span>
-        </div>
-      </div>
+      <AuthProfileCard savedRecipesCount={savedRecipesCount} totalItemsCount={totalItemsCount} />
+
+      <AuthBackendStatusCard />
 
       {(!isStandalone && (isInstallable || isIOS)) && (
         <div className="grid gap-2.5 rounded-2xl border border-[var(--color-border-brand)] bg-gradient-to-r from-[var(--color-bg-overlay)] to-[var(--color-surface-brand-soft)]/30 p-4.5 shadow-[var(--shadow-glass)]">
@@ -83,18 +74,16 @@ export function MyTab() {
             </span>
             <div className="overflow-hidden rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] divide-y divide-[var(--color-border-default)] shadow-[var(--shadow-glass)]">
               {group.items.map((item) => (
-                <button
-                  type="button"
+                <div
                   key={item}
-                  disabled
-                  className="flex min-h-[46px] w-full cursor-not-allowed items-center justify-between border-0 bg-transparent px-4 text-left font-bold text-[var(--color-content-default)] opacity-75 transition-colors"
+                  className="flex min-h-[46px] w-full items-center justify-between px-4 text-left font-bold text-[var(--color-content-default)] opacity-75"
                 >
                   <span className="text-[0.82rem] font-semibold">{item}</span>
                   <div className="flex items-center gap-1 text-[0.72rem] font-bold text-[var(--color-content-muted)]">
                     <span>준비중</span>
                     <Icon.ChevronRight size={12} />
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           </div>

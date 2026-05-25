@@ -1,6 +1,6 @@
 # Backend Required Spec
 
-잔반제로 frontend는 React/Vite PWA이며 현재 인벤토리, 촬영 후보, 레시피, 선택 식재료, PWA/푸시 준비 상태를 클라이언트 로컬 상태와 `localStorage`로 관리합니다. 이 문서는 **현재 구현된 기능을 그대로 백엔드/API로 연결하기 위해 백엔드가 제공해야 하는 요구사항**입니다.
+잔반제로 frontend는 React/Vite PWA이며 Clerk 로그인 사용자의 인벤토리, 레시피, 선택 식재료, 클라이언트 환경설정을 `/api/v1/*` 백엔드 API와 동기화합니다. Clerk 미설정 로컬 데모는 샘플 데이터 기반 in-memory 상태로 동작하고, legacy `prototype-store` localStorage 데이터는 로그인 후 1회 import 후 삭제합니다. 이 문서는 **현재 구현된 기능을 백엔드/API와 안정적으로 유지하기 위해 백엔드가 제공해야 하는 요구사항**입니다.
 
 > 기준 코드: `src/domain/prototype.ts`, `src/stores/usePrototypeStore.ts`, `src/screens/tabs/*`, `src/lib/lensParser.ts`, `src/lib/quantity.ts`, `src/lib/pwa.ts`, `src/sw.ts`, `src/lib/apiClient.ts`.
 > 문서의 `MUST/SHOULD/MAY`는 백엔드 handoff 우선순위를 의미합니다.
@@ -12,12 +12,12 @@
 - `dist/` 정적 서빙, SPA fallback, PWA manifest/service worker headers.
 - `/api/*` route는 SPA fallback에서 제외하고 backend API가 처리.
 - 현재 frontend required DTO 필드: `InventoryItem`, `LensCandidate`, `RecipeCard`, `RecipeIngredient`, `PushSubscription`.
-- 인벤토리 CRUD, 후보 일괄 등록, 레시피 추천/저장/요리 완료 차감, Web Push 구독 저장.
+- Clerk Bearer token 인증, 인벤토리 CRUD, 후보 일괄 등록, 레시피 추천/저장/요리 완료 차감, Web Push 구독 저장.
+- Legacy `prototype-store` import와 client preferences theme sync.
 - RFC 9457 기반 error envelope, CORS, CSP, idempotency, upload size/type validation.
 
 ### P1 - production 운영/동기화 안정화
 
-- `localStorage` prototype state import/migration.
 - Cursor pagination, delta sync, optimistic concurrency, audit/consumption history.
 - OCR/AI 분석 job 상태 조회, confidence/review workflow, duplicate merge suggestion.
 - Household/profile/settings/notification preference persistence.
@@ -67,18 +67,20 @@ Backend MUST publish an OpenAPI 3.1 document:
 
 ### Authentication and household model
 
-Current UI does not implement login, but data is household-scoped (`해커톤 팀 냉장고`, `2인 가구 기준`). Backend MUST choose one of:
+Current UI uses Clerk when `VITE_CLERK_PUBLISHABLE_KEY` is configured. Signed-in API calls include:
 
-1. MVP anonymous household session with a stable household id; or
-2. authenticated user/household membership.
+```http
+Authorization: Bearer <Clerk token>
+```
+
+When Clerk is not configured, frontend uses a local in-memory demo and does not call backend APIs. Backend MUST validate Clerk tokens and resolve them to an authorized user/household membership before reading or mutating user data.
 
 All user data endpoints MUST be scoped by `householdId` on the server side. The client MUST NOT be trusted to provide someone else's `householdId` for authorization.
 
 ### Session, token, and CSRF requirements
 
-Backend MUST define the auth/session mechanism before production API connection. The chosen model MUST meet these requirements:
+Backend MUST document the Clerk/security scheme in OpenAPI. The auth model MUST meet these requirements:
 
-- Anonymous household session ids MUST be server-generated, high-entropy, non-guessable tokens. Do not derive them from browser fingerprints, IP addresses, or user-supplied household names.
 - Cookie-backed sessions MUST use `Secure`, `HttpOnly`, and explicit `SameSite` attributes. Same-origin deployments SHOULD use `SameSite=Lax` or `Strict`; split-origin cookie deployments require `SameSite=None; Secure` plus CSRF protection.
 - Bearer-token deployments MUST use the `Authorization: Bearer <token>` header over HTTPS and MUST NOT place long-lived bearer tokens in query strings or logs.
 - All credentialed mutating endpoints, including `multipart/form-data` upload endpoints, MUST enforce CSRF protection when cookies are used. Acceptable controls are synchronizer token/double-submit token plus Origin validation, or strict Origin/Referer validation for trusted app origins.
@@ -824,7 +826,7 @@ type ClientPreferenceDto = {
 }
 ```
 
-`ClientPreferenceDto` is P1/P2 sync support. Current frontend keeps theme in browser storage and onboarding is prototype content; backend persistence is optional until cross-device preference sync is enabled.
+`ClientPreferenceDto` is used by the current frontend for signed-in theme sync. Clerk 미설정 로컬 데모는 browser/system preference 기반 in-memory theme만 사용한다.
 
 Endpoints:
 
@@ -1162,7 +1164,8 @@ Backend SHOULD include `X-Request-Id` on all responses and log it with errors. P
 - [ ] Recipe recommendation/save/consume implemented.
 - [ ] Web Push VAPID key and subscription persistence implemented.
 - [ ] Mandatory OCR/upload/push-test/import rate limits implemented.
-- [ ] Prototype localStorage import/migration endpoint implemented or explicitly deferred.
+- [ ] Prototype localStorage import/migration endpoint implemented.
+- [ ] Client preferences theme sync implemented.
 - [ ] Health/readiness endpoints implemented.
 - [ ] Release gate includes `bun run qa:production`.
 

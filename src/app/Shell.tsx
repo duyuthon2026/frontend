@@ -4,6 +4,7 @@ import { AppLogo } from '../components/AppLogo'
 import { ThemeToggle } from '../components/ui/ThemeToggle'
 import { Icon } from '../components/ui/Icons'
 import { appTabs, type AppTabId } from '../domain/prototype'
+import { AuthHeaderControl } from '../features/auth/AuthControls'
 import { cn } from '../lib/cn'
 import { usePWAInstall } from '../lib/pwa'
 
@@ -39,20 +40,7 @@ export function Shell({ activeTab, children, onTabChange }: ShellProps) {
             </button>
           )}
           <ThemeToggle />
-          <button
-            type="button"
-            onClick={() => onTabChange('my')}
-            className={cn(
-              'relative grid h-10 w-10 place-items-center rounded-full border bg-[var(--color-bg-overlay)] text-[var(--color-content-default)] shadow-[var(--shadow-glass)] transition-all hover:scale-105 active:scale-95',
-              activeTab === 'my'
-                ? 'border-[var(--color-border-brand)] bg-[var(--color-surface-brand-soft)] text-[var(--color-content-brand)]'
-                : 'border-[var(--color-border-default)] hover:border-[var(--color-border-brand)]'
-            )}
-            aria-label="프로필 및 설정"
-            aria-current={activeTab === 'my' ? 'page' : undefined}
-          >
-            <Icon.User size={18} />
-          </button>
+          <AuthHeaderControl active={activeTab === 'my'} onOpenProfile={() => onTabChange('my')} />
         </div>
       </header>
 

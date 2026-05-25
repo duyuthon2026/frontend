@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Icon } from '../../components/ui/Icons'
+import { IngredientIcon } from '../../components/ui/IngredientIcon'
 import { SwipeableBottomSheet } from '../../components/ui/SwipeableBottomSheet'
+import { AccountRequiredCard } from '../../features/auth/AuthSession'
+import { useAuthSession } from '../../features/auth/authSessionContext'
 import { usePrototypeStore } from '../../stores/usePrototypeStore'
 import { cn } from '../../lib/cn'
 import { calculateDaysLeft, type RecipeCard } from '../../domain/prototype'
@@ -32,10 +35,12 @@ export function RecipesTab() {
   const items = usePrototypeStore((state) => state.items)
   const recipes = usePrototypeStore((state) => state.recipes)
   const consumeRecipe = usePrototypeStore((state) => state.consumeRecipe)
+  const recipeConsumeReviewMessage = usePrototypeStore((state) => state.recipeConsumeReviewMessage)
   const toggleSaveRecipe = usePrototypeStore((state) => state.toggleSaveRecipe)
   const selectedIngredientIds = usePrototypeStore((state) => state.selectedIngredientIds)
   const toggleSelectedIngredientId = usePrototypeStore((state) => state.toggleSelectedIngredientId)
   const setSelectedIngredientIds = usePrototypeStore((state) => state.setSelectedIngredientIds)
+  const { canUseBackendAccount, requiresAccount } = useAuthSession()
 
   const [filterMode, setFilterMode] = useState<FilterMode>('recommend')
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null)
@@ -88,6 +93,11 @@ export function RecipesTab() {
 
   const displayedRecipes = recipes.filter((recipe) => {
     if (filterMode === 'saved' && !recipe.saved) return false
+    const matchInfo = analyzeRecipeIngredients(recipe)
+
+    if (filterMode === 'recommend' && matchInfo.selectedCount + matchInfo.ownedCount === 0) {
+      return false
+    }
 
     if (activeConditions.length > 0) {
       return activeConditions.every((cond) => {
@@ -133,8 +143,9 @@ export function RecipesTab() {
   }
 
   const handleCompleteRecipe = () => {
+    if (!canUseBackendAccount) return
     if (!selectedRecipeId) return
-    consumeRecipe(selectedRecipeId)
+    void consumeRecipe(selectedRecipeId)
     setIsCompleted(true)
   }
 
@@ -164,7 +175,7 @@ export function RecipesTab() {
             남은 식재료 맞춤 요리
           </h1>
           <p className="m-0 text-[0.82rem] text-[var(--color-content-muted)]">
-            보관 중인 재료의 유통기한 임박도를 고려한 소진 우선 추천
+            보관 중인 식재료와 하나 이상 맞는 요리만 소진 우선 추천
           </p>
         </div>
         <button
@@ -182,6 +193,10 @@ export function RecipesTab() {
           <Icon.Filter size={18} />
         </button>
       </section>
+
+      {requiresAccount && (
+        <AccountRequiredCard actionLabel="레시피 저장, 식재료 선택, 요리 완료 차감은 가입 후 서버 데이터로 동기화됩니다." />
+      )}
 
       <AnimatePresence>
         {showConditions && (
@@ -228,8 +243,11 @@ export function RecipesTab() {
             </span>
             <button
               type="button"
-              onClick={() => setSelectedIngredientIds([])}
-              className="text-[0.7rem] font-bold text-[var(--color-error)] hover:underline border-0 bg-transparent cursor-pointer"
+              onClick={() => {
+                if (canUseBackendAccount) void setSelectedIngredientIds([])
+              }}
+              disabled={!canUseBackendAccount}
+              className="text-[0.7rem] font-bold text-[var(--color-error)] hover:underline border-0 bg-transparent cursor-pointer disabled:cursor-not-allowed disabled:opacity-55"
             >
               선택 해제
             </button>
@@ -239,8 +257,11 @@ export function RecipesTab() {
               <button
                 type="button"
                 key={item.id}
-                onClick={() => toggleSelectedIngredientId(item.id)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--color-surface-brand-soft)] border border-[var(--color-border-brand)] text-[0.74rem] font-bold text-[var(--color-content-brand)] cursor-pointer"
+                onClick={() => {
+                  if (canUseBackendAccount) void toggleSelectedIngredientId(item.id)
+                }}
+                disabled={!canUseBackendAccount}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-[var(--color-surface-brand-soft)] border border-[var(--color-border-brand)] text-[0.74rem] font-bold text-[var(--color-content-brand)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-55"
               >
                 <span>{item.name}</span>
                 <span className="text-[0.64rem] opacity-60">×</span>
@@ -284,7 +305,11 @@ export function RecipesTab() {
           <div className="col-span-full text-center py-12 border border-dashed border-[var(--color-border-default)] rounded-2xl bg-[var(--color-bg-base)]">
             <Icon.Recipes size={36} className="mx-auto text-[var(--color-content-subtle)] mb-2" />
             <p className="text-[0.82rem] font-bold text-[var(--color-content-muted)]">
-              {filterMode === 'saved' ? '저장된 레시피가 없습니다.' : '추천 레시피가 없습니다.'}
+              {filterMode === 'saved'
+                ? '저장된 레시피가 없습니다.'
+                : items.length === 0
+                  ? '보관함에 식재료를 먼저 등록하세요.'
+                  : '보유 식재료와 매칭되는 레시피가 없습니다.'}
             </p>
           </div>
         ) : (
@@ -316,10 +341,11 @@ export function RecipesTab() {
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        toggleSaveRecipe(recipe.id)
+                        if (canUseBackendAccount) void toggleSaveRecipe(recipe.id)
                       }}
+                      disabled={!canUseBackendAccount}
                       aria-label={recipe.saved ? `${recipe.name} 저장 취소` : `${recipe.name} 저장`}
-                      className="text-[var(--color-content-muted)] hover:text-red-500 cursor-pointer border-0 bg-transparent py-0 px-1"
+                      className="text-[var(--color-content-muted)] hover:text-red-500 cursor-pointer border-0 bg-transparent py-0 px-1 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Icon.Bookmark
                       size={16}
@@ -346,7 +372,7 @@ export function RecipesTab() {
                                 : 'border-dashed border-[var(--color-border-default)] bg-transparent text-[var(--color-content-muted)]'
                           )}
                         >
-                          <span>{ing.avatar}</span>
+                          <IngredientIcon name={ing.name} />
                           <span>{ing.name}</span>
                         </span>
                       )
@@ -399,7 +425,7 @@ export function RecipesTab() {
                         return (
                           <div key={idx} className="flex items-center justify-between text-[0.82rem]">
                             <div className="flex items-center gap-1.5">
-                              <span>{ing.avatar}</span>
+                              <IngredientIcon name={ing.name} />
                               <span className="font-extrabold text-[var(--color-content-default)]">{ing.name}</span>
                               <span className="text-[var(--color-content-muted)]">({ing.quantity})</span>
                             </div>
@@ -431,15 +457,19 @@ export function RecipesTab() {
                   <div className="grid grid-cols-2 gap-3 mt-1">
                     <button
                       type="button"
-                      onClick={() => toggleSaveRecipe(selectedRecipe.id)}
-                      className="min-h-11 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.84rem] font-bold text-[var(--color-content-default)] cursor-pointer"
+                      onClick={() => {
+                        if (canUseBackendAccount) void toggleSaveRecipe(selectedRecipe.id)
+                      }}
+                      disabled={!canUseBackendAccount}
+                      className="min-h-11 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.84rem] font-bold text-[var(--color-content-default)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-55"
                     >
                       {selectedRecipe.saved ? '보관 취소' : '요리 보관'}
                     </button>
                     <button
                       type="button"
                       onClick={handleCompleteRecipe}
-                      className="min-h-11 rounded-xl border-0 bg-[var(--color-primary)] text-[0.84rem] font-extrabold text-[var(--color-on-primary)] shadow-[var(--shadow-glass)] transition-all active:scale-95 cursor-pointer"
+                      disabled={!canUseBackendAccount}
+                      className="min-h-11 rounded-xl border-0 bg-[var(--color-primary)] text-[0.84rem] font-extrabold text-[var(--color-on-primary)] shadow-[var(--shadow-glass)] transition-all active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-55"
                     >
                       요리 완료 (재료 차감)
                     </button>
@@ -458,6 +488,11 @@ export function RecipesTab() {
                     <p className="m-0 text-[0.78rem] text-[var(--color-content-muted)] leading-relaxed max-w-[90%]">
                       레시피에 필요한 식재료들이 인벤토리 수량에서 자동으로 차감되거나 삭제되었습니다.
                     </p>
+                    {recipeConsumeReviewMessage && (
+                      <p className="m-0 rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-surface-warning-soft)]/30 px-3 py-2 text-[0.74rem] font-bold text-[var(--color-warning)]">
+                        {recipeConsumeReviewMessage}
+                      </p>
+                    )}
                   </div>
 
                   <button
