@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { Icon } from '../../components/ui/Icons'
 import { QuantityInput } from '../../components/ui/QuantityInput'
@@ -20,6 +20,12 @@ import {
   type StorageLocation,
 } from '../../domain/prototype'
 import { getRelativeDateString } from '../../lib/date'
+import {
+  fetchInventorySpoilageRisks,
+  shouldUseBackendApi,
+  type InventorySpoilageRiskReportDto,
+  type SpoilageRiskDto,
+} from '../../lib/backendApi'
 
 type FilterType = 'all' | '냉장' | '냉동' | '실온' | '임박'
 type FormSubmitEvent = { preventDefault: () => void }
@@ -48,8 +54,37 @@ export function InventoryTab() {
   const [formQuantityUnit, setFormQuantityUnit] = useState('개')
   const [formLocation, setFormLocation] = useState<StorageLocation>('냉장')
   const [formExpiresAt, setFormExpiresAt] = useState('')
+  const [spoilageReport, setSpoilageReport] = useState<InventorySpoilageRiskReportDto | null>(null)
+  const [spoilageRiskError, setSpoilageRiskError] = useState<string | null>(null)
 
   const selectedItem = items.find((i) => i.id === selectedItemId)
+  const itemRiskById = useMemo(() => new Map(
+    spoilageReport?.items.map((entry) => [entry.item.id, entry]) ?? [],
+  ), [spoilageReport])
+  const selectedRiskEntry = selectedItemId ? itemRiskById.get(selectedItemId) : undefined
+  const itemRiskSignature = items.map((item) => `${item.id}:${item.expiresAt}:${item.location}`).join('|')
+
+  useEffect(() => {
+    if (!canUseBackendAccount || !shouldUseBackendApi()) {
+      return undefined
+    }
+
+    let isCancelled = false
+    fetchInventorySpoilageRisks()
+      .then((report) => {
+        if (isCancelled) return
+        setSpoilageReport(report)
+        setSpoilageRiskError(null)
+      })
+      .catch((error) => {
+        if (isCancelled) return
+        setSpoilageRiskError(error instanceof Error ? error.message : '부패 위험도를 불러오지 못했습니다.')
+      })
+
+    return () => {
+      isCancelled = true
+    }
+  }, [canUseBackendAccount, itemRiskSignature])
 
   const handleCloseDetail = useCallback(() => {
     setSelectedItemId(null)
@@ -180,6 +215,35 @@ export function InventoryTab() {
         <AccountRequiredCard actionLabel="식재료 추가, 수정, 삭제와 레시피 매칭 선택은 이제 서버 냉장고에 저장됩니다." />
       )}
 
+      {spoilageReport && (
+        <section className="grid gap-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-3.5 shadow-[var(--shadow-glass)]">
+          <div className="flex items-center justify-between gap-3">
+            <div className="grid gap-0.5">
+              <span className="text-[0.66rem] font-black uppercase tracking-wider text-[var(--color-secondary)] dark:text-[var(--color-tertiary)]">
+                Weather Risk
+              </span>
+              <strong className="text-[0.9rem] font-extrabold text-[var(--color-content-default)]">
+                {spoilageReport.summary.title}
+              </strong>
+            </div>
+            <span className={cn(
+              'shrink-0 rounded-lg border px-2.5 py-1 text-[0.7rem] font-black',
+              weatherRiskClassName(spoilageReport.weather.riskLevel),
+            )}>
+              {Math.round(spoilageReport.weather.temperatureC)}도 · 습도 {spoilageReport.weather.relativeHumidity}%
+            </span>
+          </div>
+          <p className="m-0 text-[0.74rem] font-semibold text-[var(--color-content-muted)]">
+            {spoilageReport.summary.body}
+          </p>
+        </section>
+      )}
+      {spoilageRiskError && (
+        <p className="m-0 rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-surface-warning-soft)]/25 px-3 py-2 text-[0.74rem] font-bold text-[var(--color-warning)]">
+          {spoilageRiskError}
+        </p>
+      )}
+
       <div className="grid gap-3">
         <div className="relative flex items-center">
           <span className="absolute left-3.5 text-[var(--color-content-subtle)]">
@@ -240,6 +304,8 @@ export function InventoryTab() {
             const isSoon = status === 'soon'
             const isOverdue = daysLeft < 0
             const isSelected = selectedIngredientIds.includes(item.id)
+            const riskEntry = itemRiskById.get(item.id)
+            const riskMeta = riskEntry ? getSpoilageRiskMeta(riskEntry.spoilageRisk) : null
 
             return (
               <article
@@ -307,6 +373,14 @@ export function InventoryTab() {
                     <span className="text-[0.74rem] font-bold text-[var(--color-content-muted)]">
                       {item.location} · {item.quantity}
                     </span>
+                    {riskEntry && riskMeta && (
+                      <span className={cn(
+                        'w-fit rounded-md border px-1.5 py-0.5 text-[0.62rem] font-black',
+                        riskMeta.className,
+                      )}>
+                        부패 {riskMeta.label} · {Math.round(riskEntry.spoilageRisk.score * 100)}%
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="grid justify-items-end gap-0.5">
@@ -325,6 +399,14 @@ export function InventoryTab() {
                   <span className="text-[0.66rem] font-bold text-[var(--color-content-muted)]">
                     {isSafe ? '정상' : isSoon ? '임박' : '확인 필요'}
                   </span>
+                  {riskEntry && (
+                    <span className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--color-bg-sunken)]">
+                      <span
+                        className={cn('block h-full rounded-full', riskMeta?.barClassName)}
+                        style={{ width: `${Math.max(6, Math.round(riskEntry.spoilageRisk.score * 100))}%` }}
+                      />
+                    </span>
+                  )}
                 </div>
               </article>
             )
@@ -378,6 +460,41 @@ export function InventoryTab() {
                       </p>
                     </div>
                   </div>
+
+                  {selectedRiskEntry && (
+                    <div className="grid gap-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="grid gap-0.5">
+                          <span className="text-[0.7rem] font-bold text-[var(--color-content-muted)]">부패 위험도</span>
+                          <strong className="text-[1rem] font-extrabold text-[var(--color-content-default)]">
+                            {getSpoilageRiskMeta(selectedRiskEntry.spoilageRisk).label} · {Math.round(selectedRiskEntry.spoilageRisk.score * 100)}%
+                          </strong>
+                        </div>
+                        <span className={cn(
+                          'rounded-lg border px-2.5 py-1 text-[0.72rem] font-black',
+                          getSpoilageRiskMeta(selectedRiskEntry.spoilageRisk).className,
+                        )}>
+                          체감 D{selectedRiskEntry.weatherImpact.adjustedDaysLeft < 0
+                            ? `+${Math.abs(selectedRiskEntry.weatherImpact.adjustedDaysLeft)}`
+                            : selectedRiskEntry.weatherImpact.adjustedDaysLeft === 0
+                              ? '-DAY'
+                              : `-${selectedRiskEntry.weatherImpact.adjustedDaysLeft}`}
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-[var(--color-bg-sunken)]">
+                        <span
+                          className={cn('block h-full rounded-full', getSpoilageRiskMeta(selectedRiskEntry.spoilageRisk).barClassName)}
+                          style={{ width: `${Math.max(6, Math.round(selectedRiskEntry.spoilageRisk.score * 100))}%` }}
+                        />
+                      </div>
+                      <p className="m-0 text-[0.74rem] font-semibold leading-relaxed text-[var(--color-content-muted)]">
+                        {selectedRiskEntry.spoilageRisk.recommendation}
+                      </p>
+                      <p className="m-0 text-[0.7rem] font-semibold leading-relaxed text-[var(--color-content-muted)]">
+                        날씨 영향: {selectedRiskEntry.weatherImpact.recommendation}
+                      </p>
+                    </div>
+                  )}
 
                   {!isDeleting ? (
                     <div className="grid grid-cols-2 gap-3 mt-1">
@@ -600,4 +717,47 @@ export function InventoryTab() {
       </AnimatePresence>
     </div>
   )
+}
+
+function getSpoilageRiskMeta(risk: SpoilageRiskDto): {
+  barClassName: string
+  className: string
+  label: string
+} {
+  if (risk.level === 'critical') {
+    return {
+      barClassName: 'bg-[var(--color-error)]',
+      className: 'border-[var(--color-error)] bg-[var(--color-error)] text-[var(--color-content-inverse)]',
+      label: '매우 높음',
+    }
+  }
+  if (risk.level === 'high') {
+    return {
+      barClassName: 'bg-[var(--color-warning)]',
+      className: 'border-[var(--color-warning)]/40 bg-[var(--color-surface-warning-soft)] text-[var(--color-warning)]',
+      label: '높음',
+    }
+  }
+  if (risk.level === 'medium') {
+    return {
+      barClassName: 'bg-[var(--color-primary)]',
+      className: 'border-[var(--color-border-brand)] bg-[var(--color-surface-brand-soft)] text-[var(--color-content-brand)]',
+      label: '주의',
+    }
+  }
+  return {
+    barClassName: 'bg-[var(--color-success)]',
+    className: 'border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[var(--color-content-muted)]',
+    label: '낮음',
+  }
+}
+
+function weatherRiskClassName(riskLevel: InventorySpoilageRiskReportDto['weather']['riskLevel']): string {
+  if (riskLevel === 'high') {
+    return 'border-[var(--color-error)] bg-[var(--color-error)] text-[var(--color-content-inverse)]'
+  }
+  if (riskLevel === 'elevated') {
+    return 'border-[var(--color-warning)]/40 bg-[var(--color-surface-warning-soft)] text-[var(--color-warning)]'
+  }
+  return 'border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[var(--color-content-muted)]'
 }
