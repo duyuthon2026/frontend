@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ErrorBoundary } from '../components/ui/ErrorBoundary'
+import { AccountRequiredCard } from '../features/auth/AuthSession'
 import { usePrototypeStore } from '../stores/usePrototypeStore'
 
 const HomeTab = lazy(() => import('./tabs/HomeTab').then((module) => ({ default: module.HomeTab })))
@@ -19,6 +20,7 @@ function ScreenFallback() {
 
 export function AppPrototypeScreen() {
   const activeTab = usePrototypeStore((state) => state.activeTab)
+  const backendAuthRequired = usePrototypeStore((state) => state.backendAuthRequired)
   const backendError = usePrototypeStore((state) => state.backendError)
   const backendStatus = usePrototypeStore((state) => state.backendStatus)
 
@@ -37,7 +39,14 @@ export function AppPrototypeScreen() {
             서버 냉장고 데이터를 불러오는 중입니다...
           </div>
         )}
-        {backendError && (
+        {backendAuthRequired && (
+          <AccountRequiredCard
+            forceVisible
+            title="로그인 상태를 다시 확인하세요"
+            actionLabel="서버 인증이 만료되었거나 로그인이 필요합니다."
+          />
+        )}
+        {backendError && !backendAuthRequired && (
           <div className="rounded-2xl border border-[var(--color-error)]/30 bg-[var(--color-surface-danger-soft)]/25 px-4 py-3 text-[0.78rem] font-bold leading-relaxed text-[var(--color-error)] shadow-[var(--shadow-glass)]">
             서버 동기화 실패: {backendError}
           </div>

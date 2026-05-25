@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   type ApiError,
   type ApiFetch,
+  addApiUnauthorizedListener,
   apiJson,
   resolveApiUrl,
   setApiAuthTokenProvider,
@@ -106,6 +107,29 @@ describe('api client helpers', () => {
       status: 503,
       url: '/api/inventory',
     } satisfies Partial<ApiError>)
+  })
+
+  it('notifies listeners only when the backend returns 401', async () => {
+    let unauthorizedCount = 0
+    const removeListener = addApiUnauthorizedListener(() => {
+      unauthorizedCount += 1
+    })
+
+    try {
+      await expect(apiJson('/api/inventory', {
+        baseUrl: '',
+        fetchImpl: () => Promise.resolve(new Response('unauthorized', { status: 401 })),
+      })).rejects.toMatchObject({ status: 401 } satisfies Partial<ApiError>)
+
+      await expect(apiJson('/api/inventory', {
+        baseUrl: '',
+        fetchImpl: () => Promise.resolve(new Response('service unavailable', { status: 503 })),
+      })).rejects.toMatchObject({ status: 503 } satisfies Partial<ApiError>)
+    } finally {
+      removeListener()
+    }
+
+    expect(unauthorizedCount).toBe(1)
   })
 
   it('uses Problem Details text for API error messages', async () => {

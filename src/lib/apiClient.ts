@@ -8,6 +8,8 @@ export type ApiFetchOptions = RequestInit & {
   fetchImpl?: ApiFetch
 }
 
+export const apiUnauthorizedEventName = 'janban-zero:api-unauthorized'
+
 export class ApiError extends Error {
   readonly body: string
   readonly status: number
@@ -49,6 +51,17 @@ let apiAuthTokenProvider: ApiAuthTokenProvider | undefined
 
 export function setApiAuthTokenProvider(provider: ApiAuthTokenProvider | undefined): void {
   apiAuthTokenProvider = provider
+}
+
+export function addApiUnauthorizedListener(listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined
+
+  window.addEventListener(apiUnauthorizedEventName, listener)
+  return () => window.removeEventListener(apiUnauthorizedEventName, listener)
+}
+
+export function isApiUnauthorizedError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401
 }
 
 export function getApiBaseUrl(baseUrl = import.meta.env.VITE_API_BASE_URL): string {
@@ -122,10 +135,19 @@ export async function apiFetch(pathname: string, options: ApiFetchOptions = {}):
   })
 
   if (!response.ok) {
-    throw new ApiError(response.status, response.url || url, await response.text())
+    const error = new ApiError(response.status, response.url || url, await response.text())
+    if (error.status === 401) {
+      notifyApiUnauthorized()
+    }
+    throw error
   }
 
   return response
+}
+
+function notifyApiUnauthorized(): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new Event(apiUnauthorizedEventName))
 }
 
 export async function apiJson(pathname: string, options: ApiFetchOptions = {}): Promise<unknown> {

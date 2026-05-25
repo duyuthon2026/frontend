@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { isApiUnauthorizedError } from '../lib/apiClient'
 import {
   type AppTabId,
   type HomeStateId,
@@ -204,6 +205,7 @@ type PrototypeState = {
   activeLensStep: LensStepId
   activeRecipeView: RecipeViewId
   activeTab: AppTabId
+  backendAuthRequired: boolean
   backendError: string | null
   backendStatus: BackendStatus
   setActiveHomeState: (state: HomeStateId) => void
@@ -212,6 +214,7 @@ type PrototypeState = {
   setActiveRecipeView: (view: RecipeViewId) => void
   setActiveTab: (tab: AppTabId) => void
   loadBackendState: () => Promise<void>
+  markBackendAuthRequired: () => void
   resetBackendState: () => void
 
   items: InventoryItem[]
@@ -238,8 +241,15 @@ type PrototypeState = {
 
 export const usePrototypeStore = create<PrototypeState>()((set, get) => {
   const setBackendError = (error: unknown) => {
+    if (isApiUnauthorizedError(error)) {
+      set({
+        backendAuthRequired: true,
+        backendError: null,
+      })
+      return
+    }
     const message = error instanceof Error ? error.message : '백엔드 요청에 실패했습니다.'
-    set({ backendError: message })
+    set({ backendAuthRequired: false, backendError: message })
     if (import.meta.env.DEV) {
       console.warn('Backend request failed:', error)
     }
@@ -250,7 +260,7 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
       return false
     }
 
-    set({ backendError: null })
+    set({ backendAuthRequired: false, backendError: null })
     try {
       await operation()
       return true
@@ -296,13 +306,20 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
     activeRecipeView: 'main',
     activeTab: 'home',
     backendError: null,
+    backendAuthRequired: false,
     backendStatus: 'idle',
     setActiveHomeState: (activeHomeState) => set({ activeHomeState }),
     setActiveInventoryView: (activeInventoryView) => set({ activeInventoryView }),
     setActiveLensStep: (activeLensStep) => set({ activeLensStep }),
     setActiveRecipeView: (activeRecipeView) => set({ activeRecipeView }),
     setActiveTab: (activeTab) => set({ activeTab }),
+    markBackendAuthRequired: () => set({
+      backendAuthRequired: true,
+      backendError: null,
+      backendStatus: 'error',
+    }),
     resetBackendState: () => set({
+      backendAuthRequired: false,
       backendError: null,
       backendStatus: 'idle',
       items: [],
@@ -314,6 +331,7 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
       if (!shouldUseBackendApi()) {
         set({
           backendError: null,
+          backendAuthRequired: false,
           backendStatus: 'ready',
           items: initialItems,
           recipes: initialRecipes,
@@ -322,7 +340,7 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
         return
       }
 
-      set({ backendError: null, backendStatus: 'loading' })
+      set({ backendAuthRequired: false, backendError: null, backendStatus: 'loading' })
       try {
         await importLegacyPrototypeStoreState()
         const [items, selectedIngredientIds] = await Promise.all([
@@ -332,6 +350,7 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
         const itemIds = new Set(items.map((item) => item.id))
         const validSelectedIds = selectedIngredientIds.filter((id) => itemIds.has(id))
         set({
+          backendAuthRequired: false,
           backendStatus: 'ready',
           items,
           selectedIngredientIds: validSelectedIds,
