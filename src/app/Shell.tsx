@@ -49,7 +49,7 @@ export function Shell({ activeTab, children, onTabChange }: ShellProps) {
       </div>
 
       <nav
-        className="z-40 mx-auto mb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] mt-2 flex w-full max-w-[480px] shrink-0 items-center justify-around rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)]/90 p-1.5 shadow-[var(--shadow-premium)] backdrop-blur-md transition-all md:max-w-[900px]"
+        className="z-40 -mx-4 mt-2 flex shrink-0 items-center justify-around border-t border-[var(--color-border-default)] bg-[var(--color-bg-overlay)]/92 px-4 pb-[calc(0.375rem+env(safe-area-inset-bottom,0px))] pt-1.5 shadow-[var(--shadow-premium)] backdrop-blur-md transition-all md:-mx-6 md:px-6"
         aria-label="주요 메뉴"
       >
         {appTabs.map((item) => {

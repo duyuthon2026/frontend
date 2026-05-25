@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from 'react'
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, useDragControls, type PanInfo } from 'framer-motion'
 import { cn } from '../../lib/cn'
 
@@ -89,14 +90,14 @@ export function SwipeableBottomSheet({
     }
   }
 
-  return (
+  const sheet = (
     <>
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={() => onCloseRef.current()}
-        className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+        className="fixed inset-0 z-[80] bg-black/40 backdrop-blur-sm"
       />
       <motion.div
         role="dialog"
@@ -116,7 +117,7 @@ export function SwipeableBottomSheet({
         transition={sheetTransition}
         ref={sheetRef}
         className={cn(
-          'fixed inset-x-0 bottom-0 z-50 mx-auto grid max-h-[88svh] max-w-[520px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-t-3xl border-t border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] backdrop-blur-md',
+          'fixed inset-x-0 bottom-0 z-[90] mx-auto grid max-h-[calc(100dvh-env(safe-area-inset-top,0px))] max-w-[520px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-t-3xl border-t border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] shadow-[0_-8px_32px_rgba(0,0,0,0.15)] backdrop-blur-md',
           className,
         )}
       >
@@ -146,6 +147,8 @@ export function SwipeableBottomSheet({
       </motion.div>
     </>
   )
+
+  return createPortal(sheet, document.body)
 }
 
 function getFocusableElements(container: HTMLElement | null) {

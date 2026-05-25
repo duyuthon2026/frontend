@@ -41,6 +41,7 @@ export function RecipesTab() {
   const selectedIngredientIds = usePrototypeStore((state) => state.selectedIngredientIds)
   const toggleSelectedIngredientId = usePrototypeStore((state) => state.toggleSelectedIngredientId)
   const setSelectedIngredientIds = usePrototypeStore((state) => state.setSelectedIngredientIds)
+  const setActiveTab = usePrototypeStore((state) => state.setActiveTab)
   const { canUseBackendAccount, requiresAccount } = useAuthSession()
 
   const [filterMode, setFilterMode] = useState<FilterMode>('recommend')
@@ -50,11 +51,13 @@ export function RecipesTab() {
   const [activeConditions, setActiveConditions] = useState<string[]>([])
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null)
   const [isSendingFeedback, setIsSendingFeedback] = useState(false)
-  const [suppressedRecipeIds, setSuppressedRecipeIds] = useState<string[]>([])
+  const [isCompletingRecipe, setIsCompletingRecipe] = useState(false)
+  const [snoozedRecipeIds, setSnoozedRecipeIds] = useState<string[]>([])
 
   const selectedRecipe = recipes.find((r) => r.id === selectedRecipeId)
   const hasScopedIngredients = selectedIngredientIds.length > 0
   const selectedIdSet = new Set(selectedIngredientIds)
+  const snoozedRecipeIdSet = new Set(snoozedRecipeIds)
   const recipeScopeItems = hasScopedIngredients
     ? items.filter((item) => selectedIdSet.has(item.id))
     : items
@@ -97,7 +100,6 @@ export function RecipesTab() {
   }
 
   const displayedRecipes = recipes.filter((recipe) => {
-    if (suppressedRecipeIds.includes(recipe.id)) return false
     if (filterMode === 'saved' && !recipe.saved) return false
     const matchInfo = analyzeRecipeIngredients(recipe)
 
@@ -134,7 +136,7 @@ export function RecipesTab() {
     return true
   })
 
-  const sortedRecipes = displayedRecipes.some((recipe) => recipe.recommendationReasons?.length)
+  const rankedRecipes = displayedRecipes.some((recipe) => recipe.recommendationReasons?.length)
     ? displayedRecipes
     : [...displayedRecipes].sort((a, b) => {
     const analysisA = analyzeRecipeIngredients(a)
@@ -144,17 +146,45 @@ export function RecipesTab() {
     }
     return analysisB.matchPercentage - analysisA.matchPercentage
   })
+  const sortedRecipes = [...rankedRecipes].sort((left, right) => {
+    const leftSnoozed = snoozedRecipeIdSet.has(left.id)
+    const rightSnoozed = snoozedRecipeIdSet.has(right.id)
+    if (leftSnoozed === rightSnoozed) return 0
+    return leftSnoozed ? 1 : -1
+  })
+  const snoozedVisibleRecipes = sortedRecipes.filter((recipe) => snoozedRecipeIdSet.has(recipe.id))
 
   const handleOpenDetail = (recipe: RecipeCard) => {
     setSelectedRecipeId(recipe.id)
     setIsCompleted(false)
   }
 
-  const handleCompleteRecipe = () => {
+  const handleCompleteRecipe = async () => {
     if (!canUseBackendAccount) return
     if (!selectedRecipeId) return
-    void consumeRecipe(selectedRecipeId)
-    setIsCompleted(true)
+    setIsCompletingRecipe(true)
+    setFeedbackMessage(null)
+
+    try {
+      const consumed = await consumeRecipe(selectedRecipeId)
+      if (consumed) {
+        setIsCompleted(true)
+        return
+      }
+      setFeedbackMessage('요리 완료 처리에 실패했습니다. 로그인 상태와 서버 연결을 확인하세요.')
+    } finally {
+      setIsCompletingRecipe(false)
+    }
+  }
+
+  const handleRestoreRecipeRecommendation = (recipeId: string) => {
+    setSnoozedRecipeIds((ids) => ids.filter((id) => id !== recipeId))
+    setFeedbackMessage('오늘 제외를 해제했습니다.')
+  }
+
+  const handleRestoreAllRecipeRecommendations = () => {
+    setSnoozedRecipeIds([])
+    setFeedbackMessage('오늘 제외한 레시피를 모두 다시 추천에 포함했습니다.')
   }
 
   const handleRecipeFeedback = async (action: RecipeFeedbackAction) => {
@@ -163,18 +193,26 @@ export function RecipesTab() {
     setFeedbackMessage(null)
 
     try {
+      if (action === 'not_today') {
+        setSnoozedRecipeIds((ids) => [selectedRecipe.id, ...ids.filter((id) => id !== selectedRecipe.id)])
+        setFeedbackMessage('오늘 추천 하단으로 보냈습니다. 언제든 다시 추천으로 복원할 수 있습니다.')
+        if (shouldUseBackendApi()) {
+          void sendRecipeFeedback(selectedRecipe.id, action).catch((error) => {
+            setFeedbackMessage(error instanceof Error ? error.message : '레시피 피드백 저장 실패')
+          })
+        }
+        return
+      }
+
       if (shouldUseBackendApi()) {
         await sendRecipeFeedback(
           selectedRecipe.id,
           action,
           action === 'disliked' ? selectedRecipe.ingredients.map((ingredient) => ingredient.name) : [],
         )
-        await setSelectedIngredientIds(selectedIngredientIds)
+        void setSelectedIngredientIds(selectedIngredientIds)
       }
-      if (action === 'not_today') {
-        setSuppressedRecipeIds((ids) => [selectedRecipe.id, ...ids.filter((id) => id !== selectedRecipe.id)])
-      }
-      setFeedbackMessage(action === 'disliked' ? '취향 제외에 반영했습니다.' : '이번 추천에서 뒤로 보내도록 기록했습니다.')
+      setFeedbackMessage('취향 제외에 반영했습니다. 프로필의 식생활 추천 설정에서 언제든 해제할 수 있습니다.')
     } catch (error) {
       setFeedbackMessage(error instanceof Error ? error.message : '레시피 피드백 저장 실패')
     } finally {
@@ -185,7 +223,7 @@ export function RecipesTab() {
   const handleCloseSheet = () => {
     setSelectedRecipeId(null)
     setIsCompleted(false)
-    setFeedbackMessage(null)
+      setFeedbackMessage(null)
   }
 
   const handleToggleRecipeScopeItem = (itemId: string) => {
@@ -353,9 +391,29 @@ export function RecipesTab() {
         </button>
       </section>
 
+      {snoozedVisibleRecipes.length > 0 && (
+        <section className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] px-3.5 py-3 shadow-[var(--shadow-glass)]">
+          <div className="grid gap-0.5">
+            <strong className="text-[0.8rem] font-extrabold text-[var(--color-content-default)]">
+              오늘 뒤로 보낸 추천 {snoozedVisibleRecipes.length}개
+            </strong>
+            <span className="text-[0.7rem] font-bold text-[var(--color-content-muted)]">
+              목록 하단에 유지됩니다. 필요하면 바로 복원하세요.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleRestoreAllRecipeRecommendations}
+            className="min-h-9 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 text-[0.74rem] font-black text-[var(--color-content-default)]"
+          >
+            모두 복원
+          </button>
+        </section>
+      )}
+
       <section className="grid gap-3.5 md:grid-cols-2">
         {sortedRecipes.length === 0 ? (
-          <div className="col-span-full text-center py-12 border border-dashed border-[var(--color-border-default)] rounded-2xl bg-[var(--color-bg-base)]">
+          <div className="col-span-full grid justify-items-center gap-3 border border-dashed border-[var(--color-border-default)] rounded-2xl bg-[var(--color-bg-base)] px-4 py-12 text-center">
             <Icon.Recipes size={36} className="mx-auto text-[var(--color-content-subtle)] mb-2" />
             <p className="text-[0.82rem] font-bold text-[var(--color-content-muted)]">
               {filterMode === 'saved'
@@ -364,10 +422,41 @@ export function RecipesTab() {
                   ? '보관함에 식재료를 먼저 등록하세요.'
                   : '보유 식재료와 매칭되는 레시피가 없습니다.'}
             </p>
+            {filterMode === 'recommend' && items.length > 0 && (
+              <div className="flex flex-wrap justify-center gap-2">
+                {hasScopedIngredients && (
+                  <button
+                    type="button"
+                    onClick={() => void setSelectedIngredientIds([])}
+                    disabled={!canUseBackendAccount}
+                    className="min-h-9 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] px-3 text-[0.74rem] font-black text-[var(--color-content-default)] disabled:opacity-55"
+                  >
+                    전체 재료로 보기
+                  </button>
+                )}
+                {activeConditions.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveConditions([])}
+                    className="min-h-9 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] px-3 text-[0.74rem] font-black text-[var(--color-content-default)]"
+                  >
+                    필터 해제
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('my')}
+                  className="min-h-9 rounded-xl border border-[var(--color-border-brand)] bg-[var(--color-surface-brand-soft)] px-3 text-[0.74rem] font-black text-[var(--color-content-brand)]"
+                >
+                  추천 설정 관리
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           sortedRecipes.map((recipe) => {
             const matchInfo = analyzeRecipeIngredients(recipe)
+            const isSnoozed = snoozedRecipeIdSet.has(recipe.id)
 
             return (
               <article
@@ -382,14 +471,26 @@ export function RecipesTab() {
                 }}
                 role="button"
                 tabIndex={0}
-                className="relative flex cursor-pointer flex-col justify-between overflow-hidden rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)] p-4 shadow-[var(--shadow-glass)] transition-all duration-300 hover:translate-y-[-1px] hover:border-[var(--color-border-brand)] focus:outline-none focus:ring-2 focus:ring-[var(--color-focus)] focus:ring-offset-2 focus:ring-offset-[var(--color-bg-app)]"
+                className={cn(
+                  'relative flex cursor-pointer flex-col justify-between overflow-hidden rounded-xl border bg-[var(--color-bg-overlay)] p-4 shadow-[var(--shadow-glass)] transition-all duration-300 hover:translate-y-[-1px] hover:border-[var(--color-border-brand)] focus:outline-none focus:ring-2 focus:ring-[var(--color-focus)] focus:ring-offset-2 focus:ring-offset-[var(--color-bg-app)]',
+                  isSnoozed
+                    ? 'border-[var(--color-border-default)] opacity-80'
+                    : 'border-[var(--color-border-default)]',
+                )}
               >
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1 text-[0.7rem] font-bold text-[var(--color-secondary)] dark:text-[var(--color-tertiary)]">
-                      <Icon.Calendar size={12} />
-                      소요 {recipe.time}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="flex items-center gap-1 text-[0.7rem] font-bold text-[var(--color-secondary)] dark:text-[var(--color-tertiary)]">
+                        <Icon.Calendar size={12} />
+                        소요 {recipe.time}
+                      </span>
+                      {isSnoozed && (
+                        <span className="rounded-md border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-1.5 py-0.5 text-[0.64rem] font-black text-[var(--color-content-muted)]">
+                          오늘 제외됨
+                        </span>
+                      )}
+                    </div>
                     <button
                       type="button"
                       onClick={(e) => {
@@ -410,6 +511,18 @@ export function RecipesTab() {
                   <strong className="text-[1.02rem] font-extrabold text-[var(--color-content-default)] leading-tight">
                     {recipe.name}
                   </strong>
+                  {isSnoozed && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleRestoreRecipeRecommendation(recipe.id)
+                      }}
+                      className="w-fit rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-2.5 py-1 text-[0.7rem] font-black text-[var(--color-content-default)]"
+                    >
+                      다시 추천받기
+                    </button>
+                  )}
                   {recipe.recommendationReasons?.length ? (
                     <div className="flex flex-wrap gap-1">
                       {recipe.recommendationReasons.slice(0, 3).map((reason) => (
@@ -545,21 +658,29 @@ export function RecipesTab() {
                     </button>
                     <button
                       type="button"
-                      onClick={handleCompleteRecipe}
-                      disabled={!canUseBackendAccount}
+                      onClick={() => void handleCompleteRecipe()}
+                      disabled={!canUseBackendAccount || isCompletingRecipe}
                       className="min-h-11 rounded-xl border-0 bg-[var(--color-primary)] text-[0.84rem] font-extrabold text-[var(--color-on-primary)] shadow-[var(--shadow-glass)] transition-all active:scale-95 cursor-pointer disabled:cursor-not-allowed disabled:opacity-55"
                     >
-                      요리 완료 (재료 차감)
+                      {isCompletingRecipe ? '처리 중' : '요리 완료 (재료 차감)'}
                     </button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => void handleRecipeFeedback('not_today')}
+                      onClick={() => {
+                        if (selectedRecipe) {
+                          if (snoozedRecipeIdSet.has(selectedRecipe.id)) {
+                            handleRestoreRecipeRecommendation(selectedRecipe.id)
+                            return
+                          }
+                          void handleRecipeFeedback('not_today')
+                        }
+                      }}
                       disabled={!canUseBackendAccount || isSendingFeedback}
                       className="min-h-10 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] text-[0.78rem] font-bold text-[var(--color-content-default)] disabled:cursor-not-allowed disabled:opacity-55"
                     >
-                      오늘 제외
+                      {selectedRecipe && snoozedRecipeIdSet.has(selectedRecipe.id) ? '다시 추천받기' : '오늘 제외'}
                     </button>
                     <button
                       type="button"

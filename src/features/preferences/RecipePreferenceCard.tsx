@@ -69,10 +69,38 @@ export function RecipePreferenceCard() {
           : null,
       })
       applyPreferenceState(nextPreferences)
-      await setSelectedIngredientIds(selectedIngredientIds)
       setMessage('추천 설정이 저장되고 레시피 추천이 다시 계산되었습니다.')
+      void setSelectedIngredientIds(selectedIngredientIds).then((refreshed) => {
+        if (!refreshed) {
+          setMessage('추천 설정은 저장되었습니다. 추천 목록 새로고침은 잠시 후 다시 시도하세요.')
+        }
+      })
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '추천 설정 저장 실패')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleClearTasteExclusions = async () => {
+    if (!canUseBackendAccount) return
+    setIsSaving(true)
+    setMessage(null)
+
+    try {
+      const nextPreferences = await updateRecipePreferences({
+        dislikedFoods: [],
+        excludedIngredients: [],
+        mildFlavorPreferred,
+        preferredCookTimeMinutes: preferredCookTime.trim()
+          ? Number(preferredCookTime)
+          : null,
+      })
+      applyPreferenceState(nextPreferences)
+      setMessage('취향 제외와 제외 재료를 해제했습니다. 알레르기 설정은 유지됩니다.')
+      void setSelectedIngredientIds(selectedIngredientIds)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '추천 제한 해제 실패')
     } finally {
       setIsSaving(false)
     }
@@ -139,14 +167,24 @@ export function RecipePreferenceCard() {
           최근 먹은 메뉴: {preferences.recentMeals.slice(0, 3).map((meal) => meal.recipeName).join(', ')}
         </p>
       )}
-      <button
-        type="button"
-        onClick={() => void handleSave()}
-        disabled={!canUseBackendAccount || isSaving}
-        className="min-h-11 rounded-xl border-0 bg-[var(--color-primary)] px-4 text-[0.84rem] font-extrabold text-[var(--color-on-primary)] shadow-[var(--shadow-glass)] disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        {isSaving ? '저장 중' : '추천 설정 저장'}
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => void handleClearTasteExclusions()}
+          disabled={!canUseBackendAccount || isSaving}
+          className="min-h-11 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-4 text-[0.78rem] font-extrabold text-[var(--color-content-default)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          취향 제외 해제
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={!canUseBackendAccount || isSaving}
+          className="min-h-11 rounded-xl border-0 bg-[var(--color-primary)] px-4 text-[0.84rem] font-extrabold text-[var(--color-on-primary)] shadow-[var(--shadow-glass)] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isSaving ? '저장 중' : '추천 설정 저장'}
+        </button>
+      </div>
       {message && (
         <p className="m-0 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-base)] px-3 py-2 text-[0.72rem] font-bold text-[var(--color-content-muted)]">
           {message}
