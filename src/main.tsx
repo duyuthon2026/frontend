@@ -6,7 +6,10 @@ import App from './App.tsx'
 import { ClerkConnectedApp } from './features/auth/ClerkConnectedApp'
 import { AuthSessionProvider, type AuthSessionState } from './features/auth/authSessionContext'
 import { clerkPublishableKey } from './lib/clerk'
+import { installInteractionGuards } from './lib/interactionGuards'
 import { registerAppServiceWorker } from './lib/pwa'
+
+installInteractionGuards()
 
 const anonymousSession: AuthSessionState = {
   canUseBackendAccount: true,

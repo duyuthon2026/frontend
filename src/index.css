@@ -109,6 +109,28 @@
 * {
   box-sizing: border-box;
   font-family: var(--font-sans);
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html {
+  min-height: 100%;
+  -webkit-text-size-adjust: 100%;
+  touch-action: pan-x pan-y;
+}
+
+input,
+textarea,
+select,
+[contenteditable],
+[data-allow-text-selection="true"],
+.allow-text-selection,
+.allow-text-selection * {
+  -webkit-touch-callout: default !important;
+  -webkit-user-select: text !important;
+  user-select: text !important;
 }
 
 button,
@@ -123,10 +145,12 @@ body {
   color: var(--color-content-default);
   overflow-x: hidden;
   min-height: 100svh;
+  touch-action: pan-x pan-y;
 }
 
 #root {
   min-height: 100svh;
+  touch-action: pan-x pan-y;
 }
 
 button, a {
