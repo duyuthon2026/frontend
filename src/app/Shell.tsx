@@ -18,8 +18,8 @@ export function Shell({ activeTab, children, onTabChange }: ShellProps) {
   const showInstallAction = !isStandalone && (isInstallable || isIOS)
 
   return (
-    <div className="relative mx-auto min-h-svh w-full max-w-[520px] px-4 pb-[calc(96px+env(safe-area-inset-bottom,0px))] text-[var(--color-content-default)] md:max-w-[980px] md:px-6">
-      <header className="sticky top-0 z-30 flex min-h-[64px] items-center justify-between bg-[var(--color-bg-app)]/80 py-2 backdrop-blur-md transition-all">
+    <div className="app-shell relative mx-auto flex w-full max-w-[520px] flex-col px-4 pt-[env(safe-area-inset-top,0px)] text-[var(--color-content-default)] md:max-w-[980px] md:px-6">
+      <header className="z-30 flex min-h-[64px] shrink-0 items-center justify-between bg-[var(--color-bg-app)]/88 py-2 backdrop-blur-md transition-all">
         <AppLogo />
         <div className="flex items-center gap-2">
           {showInstallAction && (
@@ -44,10 +44,12 @@ export function Shell({ activeTab, children, onTabChange }: ShellProps) {
         </div>
       </header>
 
-      {children}
+      <div className="app-scroll-container min-h-0 flex-1 overflow-y-auto overscroll-contain pb-4 pt-1">
+        {children}
+      </div>
 
       <nav
-        className="fixed inset-x-4 bottom-[calc(1.125rem+env(safe-area-inset-bottom,0px))] z-40 mx-auto flex max-w-[480px] items-center justify-around rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)]/90 p-1.5 shadow-[var(--shadow-premium)] backdrop-blur-md transition-all md:max-w-[900px]"
+        className="z-40 mx-auto mb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] mt-2 flex w-full max-w-[480px] shrink-0 items-center justify-around rounded-2xl border border-[var(--color-border-default)] bg-[var(--color-bg-overlay)]/90 p-1.5 shadow-[var(--shadow-premium)] backdrop-blur-md transition-all md:max-w-[900px]"
         aria-label="주요 메뉴"
       >
         {appTabs.map((item) => {

@@ -44,6 +44,10 @@ const tomatoRecipe: RecipeCard = {
   time: '14분',
 }
 
+const flushBackgroundRefresh = () => new Promise<void>((resolve) => {
+  setTimeout(resolve, 0)
+})
+
 describe('usePrototypeStore backend recipe refresh', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -72,6 +76,7 @@ describe('usePrototypeStore backend recipe refresh', () => {
     expect(saved).toBe(true)
     expect(backendMocks.fetchRecipes).toHaveBeenCalledWith([])
     expect(usePrototypeStore.getState().items).toEqual([tomatoItem])
+    await flushBackgroundRefresh()
     expect(usePrototypeStore.getState().recipes).toEqual([tomatoRecipe])
   })
 
@@ -92,6 +97,24 @@ describe('usePrototypeStore backend recipe refresh', () => {
     expect(saved).toBe(true)
     expect(backendMocks.fetchRecipes).toHaveBeenCalledWith(['tofu'])
     expect(usePrototypeStore.getState().items).toEqual([tofuItem, tomatoItem])
+    await flushBackgroundRefresh()
     expect(usePrototypeStore.getState().recipes).toEqual([tomatoRecipe])
+  })
+
+  it('keeps batch-created inventory visible even when recipe refresh fails', async () => {
+    backendMocks.createInventoryItemsBatch.mockResolvedValue([tomatoItem])
+    backendMocks.fetchRecipes.mockRejectedValueOnce(new Error('recipe refresh failed'))
+
+    const saved = await usePrototypeStore.getState().addItemsBatch([{
+      name: '토마토',
+      quantity: '2개',
+      location: '냉장',
+      expiresAt: '2026-05-28',
+    }])
+
+    expect(saved).toBe(true)
+    expect(usePrototypeStore.getState().items).toEqual([tomatoItem])
+    await flushBackgroundRefresh()
+    expect(usePrototypeStore.getState().backendError).toBe('recipe refresh failed')
   })
 })

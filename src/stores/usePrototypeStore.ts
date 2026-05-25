@@ -289,6 +289,14 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
     }
   }
 
+  const refreshRecipesForSelectionSafely = async (selectedIngredientIds: string[]) => {
+    try {
+      await refreshRecipesForSelection(selectedIngredientIds)
+    } catch (error) {
+      setBackendError(error)
+    }
+  }
+
   const consumeRecipeLocally = (recipeId: string) => {
     set({ recipeConsumeReviewMessage: null })
     set((state) => {
@@ -422,7 +430,7 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
       return runBackendMutation(async () => {
         const created = await createInventoryItem(item)
         set((state) => ({ items: [...state.items, created] }))
-        await refreshRecipesForSelection(get().selectedIngredientIds)
+        void refreshRecipesForSelectionSafely(get().selectedIngredientIds)
       })
     },
 
@@ -444,7 +452,7 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
           })),
         )
         set((state) => ({ items: [...state.items, ...createdItems] }))
-        await refreshRecipesForSelection(get().selectedIngredientIds)
+        void refreshRecipesForSelectionSafely(get().selectedIngredientIds)
       })
     },
 
@@ -460,12 +468,11 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
       return runBackendMutation(async () => {
         await deleteInventoryItem(id)
         const nextSelectedIds = get().selectedIngredientIds.filter((selectedId) => selectedId !== id)
-        const recipes = await fetchRecipes(nextSelectedIds)
         set((state) => ({
           items: state.items.filter((item) => item.id !== id),
-          recipes,
           selectedIngredientIds: nextSelectedIds,
         }))
+        void refreshRecipesForSelectionSafely(nextSelectedIds)
       })
     },
 
@@ -482,7 +489,7 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
         set((state) => ({
           items: state.items.map((item) => item.id === id ? nextItem : item),
         }))
-        await refreshRecipesForSelection(get().selectedIngredientIds)
+        void refreshRecipesForSelectionSafely(get().selectedIngredientIds)
       })
     },
 
@@ -510,7 +517,7 @@ export const usePrototypeStore = create<PrototypeState>()((set, get) => {
             : null,
           selectedIngredientIds: result.selectedIngredientIds,
         })
-        await refreshRecipesForSelection(result.selectedIngredientIds)
+        void refreshRecipesForSelectionSafely(result.selectedIngredientIds)
       })
     },
 
